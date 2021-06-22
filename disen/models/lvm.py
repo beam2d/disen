@@ -53,7 +53,7 @@ class LatentVariableModel(torch.nn.Module):
         selector: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     ) -> torch.Tensor:
         """Compute log density of the aggregated posterior.
-        
+
         It aggregates the posterior over a given dataset of x.
 
         By passing ``selector``, it can compute aggregated posterior of forms

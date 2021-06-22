@@ -1,4 +1,5 @@
 import dataclasses
+import pathlib
 from typing import Callable
 
 import torch
@@ -14,6 +15,20 @@ class MIMetrics:
     mig: float  # mutual information gap
     uig: float  # unique information gap
     ltig: float  # latent traversal information gap
+
+    def save(self, path: pathlib.Path) -> None:
+        with open(path, "w") as f:
+            f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
+            f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
+            f.write(f"mig={self.mig}\n")
+            f.write(f"uig={self.uig}\n")
+            f.write(f"ltig={self.ltig}\n")
+
+    def set_final_metrics(self, final_metrics: dict[str, float]) -> dict[str, float]:
+        final_metrics["mig"] = self.mig
+        final_metrics["uig"] = self.uig
+        final_metrics["ltig"] = self.ltig
+        return final_metrics
 
 
 @torch.no_grad()
