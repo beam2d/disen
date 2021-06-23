@@ -59,10 +59,3 @@ class VAE(lvm.LatentVariableModel):
         loss = nll + self.beta * kl_z
 
         return {"loss": loss, "kl_z": kl_z, "nll": nll, "elbo": elbo}
-
-    def log_posterior(
-        self, x: torch.Tensor, zs: Sequence[torch.Tensor]
-    ) -> torch.Tensor:
-        q_zs = self.encode(x)
-        log_q_zs = [q_z.log_prob(z) for z, q_z in zip(zs, q_zs)]
-        return torch.cat(log_q_zs, -1)

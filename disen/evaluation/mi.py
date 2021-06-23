@@ -24,10 +24,12 @@ class MIMetrics:
             f.write(f"uig={self.uig}\n")
             f.write(f"ltig={self.ltig}\n")
 
-    def set_final_metrics(self, final_metrics: dict[str, float]) -> dict[str, float]:
-        final_metrics["mig"] = self.mig
-        final_metrics["uig"] = self.uig
-        final_metrics["ltig"] = self.ltig
+    def set_final_metrics(
+        self, final_metrics: dict[str, float], prefix: str
+    ) -> dict[str, float]:
+        final_metrics[prefix + ".mig"] = self.mig
+        final_metrics[prefix + ".uig"] = self.uig
+        final_metrics[prefix + ".ltig"] = self.ltig
         return final_metrics
 
 
@@ -42,7 +44,7 @@ def evaluate_mi_metrics(
     ).cpu()
     ent_yj = dataset.factor_entropies()
     mig = (_gap(mi_zi_yj, 0) / ent_yj).mean().item()
-    uig = (((mi_zi_yj - mi_zmi_yj) / ent_yj).amax(0).mean().item() + 1.) / 2.
+    uig = ((mi_zi_yj - mi_zmi_yj) / ent_yj).amax(0).mean().item()
     ltig = (_gap(mi_zmi_yj, 0, largest=False) / ent_yj).mean().item()
     return MIMetrics(mi_zi_yj, mi_zmi_yj, mig, uig, ltig)
 

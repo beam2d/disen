@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Iterable, Literal
+from typing import Iterable, Iterator, Literal
 
 
 _Domain = Literal["real", "categorical"]
@@ -31,6 +31,15 @@ class LatentSpec:
         for spec in self.specs:
             if spec.domain == "real":
                 assert spec.n_categories == 1
+
+    def __iter__(self) -> Iterator[SingleLatentSpec]:
+        return iter(self.specs)
+
+    def __len__(self) -> int:
+        return len(self.specs)
+
+    def __getitem__(self, index: int) -> SingleLatentSpec:
+        return self.specs[index]
 
     @property
     def size(self) -> int:

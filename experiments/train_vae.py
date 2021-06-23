@@ -1,5 +1,6 @@
 import argparse
 import pathlib
+from typing import Callable
 
 import torch
 
@@ -54,9 +55,16 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
 
         result.plot_history(out_dir)
 
-    mi_metrics = disen.evaluation.evaluate_mi_metrics(dataset, model)
-    mi_metrics.save(out_dir / "mi_metrics.txt")
-    mi_metrics.set_final_metrics(result.final_metrics)
+    attacks = {
+        "vae": model,
+        "vae_noised": disen.attack.NoisedCopyAttack(model, 2.0),
+        "vae_mixed": disen.attack.GlobalMixingAttack(model, 0.5),
+    }
+    for name, target in attacks.items():
+        mi_metrics = disen.evaluation.evaluate_mi_metrics(dataset, target)
+        mi_metrics.save(out_dir / f"mi_metrics-{name}.txt")
+        mi_metrics.set_final_metrics(result.final_metrics, name)
+
     result.save(out_dir / "result.json")
 
 

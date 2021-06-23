@@ -42,7 +42,9 @@ class LatentVariableModel(torch.nn.Module):
         self, x: torch.Tensor, zs: Sequence[torch.Tensor]
     ) -> torch.Tensor:
         """Compute log density of the posterior."""
-        raise NotImplementedError
+        q_zs = self.encode(x)
+        log_q_zs = [q_z.log_prob(z) for z, q_z in zip(zs, q_zs)]
+        return torch.cat(log_q_zs, -1)
 
     def log_aggregated_posterior(
         self,
