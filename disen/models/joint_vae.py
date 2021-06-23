@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Sequence
 
-
 import torch
 import torch.nn.functional as F
 
@@ -66,8 +65,12 @@ class JointVAE(lvm.LatentVariableModel):
     def encode(self, x: torch.Tensor) -> list[distributions.Distribution]:
         h = self.encoder(x)
         logits = self.logits(h)[:, None]
-        temperature = torch.as_tensor(self.temperature, dtype=x.dtype, device=x.device)
-        c = distributions.RelaxedOneHotCategorical(temperature, logits)
+        c: distributions.Distribution
+        if self.training:
+            temperature = torch.as_tensor(self.temperature, dtype=x.dtype, device=x.device)
+            c = distributions.RelaxedOneHotCategorical(temperature, logits)
+        else:
+            c = distributions.OneHotCategorical(logits)
         loc = self.loc(h)
         scale = F.softplus(self.scale(h))
         z = distributions.Normal(loc, scale)
@@ -80,9 +83,8 @@ class JointVAE(lvm.LatentVariableModel):
         return distributions.Bernoulli(logits)
 
     def prior(self, batch_size: int) -> list[distributions.Distribution]:
-        device = self.logits.weight.device
-        logits = torch.zeros((batch_size, 1, self.n_categories), device=device)
-        loc = torch.zeros((batch_size, self.n_continuous), device=device)
+        logits = torch.zeros((batch_size, 1, self.n_categories), device=self.device)
+        loc = torch.zeros((batch_size, self.n_continuous), device=self.device)
         scale = torch.ones_like(loc)
         p_c = distributions.OneHotCategorical(logits)
         p_z = distributions.Normal(loc, scale)

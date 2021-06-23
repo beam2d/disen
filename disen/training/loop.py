@@ -1,4 +1,5 @@
 import pathlib
+from typing import Optional
 
 import torch
 
@@ -11,12 +12,15 @@ def train_model(
     optimizer: torch.optim.Optimizer,
     batch_size: int,
     eval_batch_size: int,
-    n_epochs: int,
     out_dir: pathlib.Path,
+    n_epochs: Optional[int] = None,
+    n_iters: Optional[int] = None,
     num_workers: int = 1,
 ) -> evaluation.Result:
     result = evaluation.Result([], {})
     iteration = 0
+    epoch = 0
+    assert n_epochs or n_iters
 
     loader = torch.utils.data.DataLoader(
         dataset, batch_size, shuffle=True, num_workers=num_workers
@@ -25,8 +29,12 @@ def train_model(
         dataset, eval_batch_size, num_workers=num_workers
     )
 
-    for epoch in range(n_epochs):
-        print(f"epoc: {epoch + 1}...")
+    finished = False
+
+    while not finished:
+        epoch += 1
+        print(f"epoch: {epoch}...")
+
         model.train()
         for x, _ in loader:
             model.zero_grad(set_to_none=True)
@@ -34,6 +42,9 @@ def train_model(
             d["loss"].mean().backward()
             optimizer.step()
             iteration += 1
+            if n_iters and iteration >= n_iters:
+                finished = True
+                break
 
         model.eval()
         with torch.no_grad():
@@ -47,5 +58,8 @@ def train_model(
             result.history.append(entry)
 
         result.plot_history(out_dir)
+
+        if n_epochs and epoch >= n_epochs:
+            break
 
     return result

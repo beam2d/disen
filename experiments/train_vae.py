@@ -8,24 +8,24 @@ import disen
 
 def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) -> None:
     n_latents = 6
-    beta = 5.0
-    lr = 0.0005
-    batch_size = 64
-    eval_batch_size = 1024
-    n_epochs = 30
 
     dataset = disen.data.DSprites(dataset_path)
     image_size = dataset[0][0].shape[-1]
     encoder = disen.nn.SimpleConvNet(image_size, 1, 256)
     decoder = disen.nn.SimpleTransposedConvNet(image_size, n_latents, 1)
-    model = disen.models.VAE(encoder, decoder, n_latents, beta)
+    model = disen.models.VAE(encoder, decoder, n_latents, beta=5.0)
     model.to(device)
-    optim = torch.optim.Adam(model.parameters(), lr)
 
     out_dir.mkdir()
 
     result = disen.training.train_model(
-        model, dataset, optim, batch_size, eval_batch_size, n_epochs, out_dir
+        model,
+        dataset,
+        optimizer=torch.optim.Adam(model.parameters(), lr=5e-4),
+        batch_size=64,
+        eval_batch_size=1024,
+        n_epochs=30,
+        out_dir=out_dir,
     )
     disen.evaluation.evaluate_mi_metrics_with_attacks(
         "vae", dataset, model, result, out_dir, noise=2.0, mix_rate=0.5

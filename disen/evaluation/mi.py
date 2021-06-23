@@ -76,10 +76,11 @@ def _compute_mi_zi_yj(
     selector: Callable[[torch.Tensor], torch.Tensor],
 ) -> torch.Tensor:
     N = len(dataset)
-    batch_size = 1000
+    N_sub = N // 50
+    batch_size = 1024
 
     # Compute H(z_i).
-    ent_zi = model.aggregated_entropy(dataset, N, N // 50, batch_size, selector)
+    ent_zi = model.aggregated_entropy(dataset, N, N_sub, batch_size, selector)
 
     # Compute H(z_i|y_j).
     # Note: we assume p(y_j) is a uniform distribution.
@@ -88,9 +89,9 @@ def _compute_mi_zi_yj(
         ent_zi_yj_points: list[torch.Tensor] = []
         for yj in range(dataset.n_factor_values[j]):
             subset = dataset.fix_factor(j, yj)
-            N_sub = len(subset)
+            n = len(subset)
             ent_zi_yj_point = model.aggregated_entropy(
-                subset, N_sub, N_sub // 20, batch_size, selector
+                subset, n, min(n, N_sub), batch_size, selector
             )
             ent_zi_yj_points.append(ent_zi_yj_point)
         ent_zi_yj_list.append(torch.stack(ent_zi_yj_points).mean(0))
