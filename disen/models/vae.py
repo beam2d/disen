@@ -3,7 +3,7 @@ from typing import Sequence
 import torch
 import torch.nn.functional as F
 
-from ..distributions import bernoulli, distribution, normal
+from .. import distributions
 from ..nn import encoder
 from . import latent_spec, lvm
 
@@ -31,26 +31,26 @@ class VAE(lvm.LatentVariableModel):
         )
         self.beta = beta
 
-    def encode(self, x: torch.Tensor) -> list[distribution.Distribution]:
+    def encode(self, x: torch.Tensor) -> list[distributions.Distribution]:
         h = self.encoder(x)
         loc = self.loc(h)
         scale = F.softplus(self.scale(h))
-        return [normal.Normal(loc, scale)]
+        return [distributions.Normal(loc, scale)]
 
-    def decode(self, zs: Sequence[torch.Tensor]) -> distribution.Distribution:
+    def decode(self, zs: Sequence[torch.Tensor]) -> distributions.Distribution:
         logits = self.decoder(*zs)
-        return bernoulli.Bernoulli(logits)
+        return distributions.Bernoulli(logits)
 
-    def prior(self, batch_size: int) -> list[distribution.Distribution]:
+    def prior(self, batch_size: int) -> list[distributions.Distribution]:
         device = self.loc.weight.device
         loc = torch.zeros((batch_size, self.n_latents), device=device)
         scale = torch.ones_like(loc)
-        return [normal.Normal(loc, scale)]
+        return [distributions.Normal(loc, scale)]
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         (q_z,) = self.encode(x)
         (p_z,) = self.prior(x.shape[0])
-        kl_z = distribution.kl_divergence(q_z, p_z).sum(1)
+        kl_z = distributions.kl_divergence(q_z, p_z).sum(1)
 
         z = q_z.sample()
         p_x = self.decode([z])

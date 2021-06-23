@@ -1,4 +1,4 @@
-from .distribution import Distribution, cat
+from .distribution import Distribution, cat, kl_divergence
 
 from .bernoulli import Bernoulli
 from .categorical import OneHotCategorical, RelaxedOneHotCategorical

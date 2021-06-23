@@ -1,10 +1,10 @@
 import dataclasses
 import pathlib
-from typing import Callable
+from typing import Callable, Optional
 
 import torch
 
-from .. import data
+from .. import attack, data, evaluation
 from ..models import lvm
 
 
@@ -31,6 +31,27 @@ class MIMetrics:
         final_metrics[prefix + ".uig"] = self.uig
         final_metrics[prefix + ".ltig"] = self.ltig
         return final_metrics
+
+
+def evaluate_mi_metrics_with_attacks(
+    name: str,
+    dataset: data.DatasetWithFactors,
+    model: lvm.LatentVariableModel,
+    result: evaluation.Result,
+    out_dir: pathlib.Path,
+    noise: Optional[float] = None,
+    mix_rate: Optional[float] = None,
+) -> None:
+    attacks = {name: model}
+    if noise is not None:
+        attacks[name + "_noised"] = attack.NoisedCopyAttack(model, noise)
+    if mix_rate is not None:
+        attacks[name + "_mixed"] = attack.GlobalMixingAttack(model, mix_rate)
+
+    for model_name, target in attacks.items():
+        mi_metrics = evaluate_mi_metrics(dataset, target)
+        mi_metrics.save(out_dir / f"mi_metrics-{model_name}.txt")
+        mi_metrics.set_final_metrics(result.final_metrics, model_name)
 
 
 @torch.no_grad()

@@ -88,4 +88,4 @@ def cat(distrs: Sequence[_Distr]) -> _Distr:
 
 
 def kl_divergence(l: Distribution, r: Distribution) -> torch.Tensor:
-    return D.kl_divergence(l.base, r.base)
+    return D.kl_divergence(l.strict.base, r.strict.base)

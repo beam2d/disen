@@ -40,8 +40,8 @@ class RelaxedOneHotCategorical(distribution.Distribution):
     ) -> None:
         super().__init__(value)
         assert logits.ndim >= 3
-        t_shape = torch.broadcast_shapes(temperature.shape, logits.shape[:2])
-        temperature = torch.broadcast_to(temperature, t_shape)
+        # TODO(beam2d): Relax this constraint
+        assert temperature.numel() == 1
         self._base = D.RelaxedOneHotCategorical(temperature, logits=logits)
 
     @property
