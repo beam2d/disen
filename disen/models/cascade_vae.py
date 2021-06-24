@@ -121,7 +121,7 @@ class CascadeVAE(lvm.LatentVariableModel):
         p_x_all = self.decode([z_expand, c_all])
         nll_p_all = -p_x_all.log_prob(x_expand).sum((1, 2, 3)).reshape(B, k)
         c_cat = nll_p_all.argmin(1)
-        return cast(torch.Tensor, F.one_hot(c_cat, k))
+        return cast(torch.Tensor, F.one_hot(c_cat, k)[:, None])
 
     def _beta(self) -> torch.Tensor:
         betas: list[float] = []
