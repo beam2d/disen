@@ -3,6 +3,18 @@ import torch
 import disen
 
 
+def test_block_matrix() -> None:
+    a = torch.arange(6).reshape(2, 3)
+    actual = disen.nn.block_matrix([[a, a * 10], [a * 100, a * 1000]])
+    expect = torch.as_tensor([
+        [0, 1, 2, 0, 10, 20],
+        [3, 4, 5, 30, 40, 50],
+        [0, 100, 200, 0, 1000, 2000],
+        [300, 400, 500, 3000, 4000, 5000],
+    ])
+    assert (expect == actual).all()
+
+
 def test_enumerate_loo() -> None:
     a = torch.as_tensor([1, 2, 3, 4, 5])
     expect = torch.as_tensor(

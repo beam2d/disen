@@ -39,8 +39,8 @@ def summarize_multiple_trials(
     metrics_summary: dict[str, float] = {}
     for key in results[0].final_metrics:
         values = numpy.asarray([r.final_metrics[key] for r in results])
-        metrics_summary[key + ".mean"] = values.mean()
-        metrics_summary[key + ".std"] = values.std()
+        metrics_summary[key + ".mean"] = float(values.mean())
+        metrics_summary[key + ".std"] = float(values.std())
     with open(out_dir / "metrics.json", "w") as f:
         json.dump(metrics_summary, f, indent=4)
 

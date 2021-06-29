@@ -41,7 +41,7 @@ def train_joint_vae(
         out_dir=out_dir,
     )
     disen.evaluation.evaluate_mi_metrics_with_attacks(
-        "jointvae", dataset, model, result, out_dir, noise=2.0, mix_rate=0.5
+        "jointvae", dataset, model, result, out_dir, alpha=[0.25, 0.5, 0.75, 1.0]
     )
     result.save(out_dir / "result.json")
 

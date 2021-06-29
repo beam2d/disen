@@ -3,6 +3,11 @@ from typing import Iterable, Optional
 import torch
 
 
+def block_matrix(blocks: list[list[torch.Tensor]]) -> torch.Tensor:
+    rows = [torch.cat(row, -1) for row in blocks]
+    return torch.cat(rows, -2)
+
+
 def enumerate_loo(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """Enumerate all leave-one-out subvectors.
     

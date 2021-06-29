@@ -112,7 +112,8 @@ class LatentVariableModel(torch.nn.Module):
         dataset: torch.utils.data.Dataset[Any],
         data_size: int,
         sample_size: int,
-        batch_size: int,
+        inner_batch_size: int,
+        outer_batch_size: int,
     ) -> torch.Tensor:
         """Compute the entropy of each latent variable.
 
@@ -121,7 +122,12 @@ class LatentVariableModel(torch.nn.Module):
         Monte-Carlo sampling with the given sample size.
         """
         return self._aggregated_entropy(
-            dataset, data_size, sample_size, batch_size, self.log_posterior
+            dataset,
+            data_size,
+            sample_size,
+            inner_batch_size,
+            outer_batch_size,
+            self.log_posterior,
         )
 
     def aggregated_loo_entropy(
@@ -129,14 +135,20 @@ class LatentVariableModel(torch.nn.Module):
         dataset: torch.utils.data.Dataset[Any],
         data_size: int,
         sample_size: int,
-        batch_size: int,
+        inner_batch_size: int,
+        outer_batch_size: int,
     ) -> torch.Tensor:
         """Compute the entropy of leave-one-out latent variables.
 
         It computes H(z_{-i}) = E[-log E_x[q(z_{-i}|x)]].
         """
         return self._aggregated_entropy(
-            dataset, data_size, sample_size, batch_size, self.log_loo_posterior
+            dataset,
+            data_size,
+            sample_size,
+            inner_batch_size,
+            outer_batch_size,
+            self.log_loo_posterior,
         )
 
     def _aggregated_entropy(
@@ -144,21 +156,20 @@ class LatentVariableModel(torch.nn.Module):
         dataset: torch.utils.data.Dataset[Any],
         data_size: int,
         sample_size: int,
-        batch_size: int,
+        inner_batch_size: int,
+        outer_batch_size: int,
         log_q: Callable[[torch.Tensor, Sequence[torch.Tensor]], torch.Tensor],
     ) -> torch.Tensor:
         subset = data.subsample(dataset, data_size, sample_size)
-        q_zs = self.infer_dataset(subset, batch_size)
-        zs = [q_z.sample()[:, None] for q_z in q_zs]
+        zs = self._infer_aggregated(subset, outer_batch_size)
         log_q_z = self._log_aggregated_posterior(
-            dataset, data_size, batch_size, zs, log_q
+            dataset, data_size, inner_batch_size, zs, log_q
         )
         return -log_q_z.mean(0)
 
-    def infer_dataset(
+    def _infer_aggregated(
         self, dataset: torch.utils.data.Dataset[Any], batch_size: int
-    ) -> list[distributions.Distribution]:
-        """Compute the posterior distribution q(z|x) for a given dataset of x."""
+    ) -> list[torch.Tensor]:
         loader = torch.utils.data.DataLoader(dataset, batch_size, num_workers=1)
         q_batches = [self.encode(batch[0].to(self.device)) for batch in loader]
-        return [distributions.cat(qs) for qs in zip(*q_batches)]
+        return [distributions.cat(qs).sample()[:, None] for qs in zip(*q_batches)]

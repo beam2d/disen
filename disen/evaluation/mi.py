@@ -1,11 +1,14 @@
 import dataclasses
 import pathlib
-from typing import Callable, Optional
+from typing import Any, Callable, Sequence
 
 import torch
 
 from .. import attack, data, evaluation
 from ..models import lvm
+
+
+EntropyFn = Callable[[torch.utils.data.Dataset[Any], int, int, int, int], torch.Tensor]
 
 
 @dataclasses.dataclass
@@ -39,16 +42,17 @@ def evaluate_mi_metrics_with_attacks(
     model: lvm.LatentVariableModel,
     result: evaluation.Result,
     out_dir: pathlib.Path,
-    noise: Optional[float] = None,
-    mix_rate: Optional[float] = None,
+    alpha: Sequence[float] = (),
 ) -> None:
     attacks = {name: model}
-    if noise is not None:
-        attacks[name + "_noised"] = attack.NoisedCopyAttack(model, noise)
-    if mix_rate is not None:
-        attacks[name + "_mixed"] = attack.GlobalMixingAttack(model, mix_rate)
+    if alpha:
+        D = model.spec.real_components_size
+        U = (torch.eye(D) - 2 / D).to(model.device)
+        for a in alpha:
+            attacks[f"{name}_redundancy_{a}"] = attack.RedundancyAttack(model, a, U)
 
     for model_name, target in attacks.items():
+        print(f"evaluating {model_name}...")
         mi_metrics = evaluate_mi_metrics(dataset, target)
         mi_metrics.save(out_dir / f"mi_metrics-{model_name}.txt")
         mi_metrics.set_final_metrics(result.final_metrics, model_name)
@@ -59,28 +63,28 @@ def evaluate_mi_metrics(
     dataset: data.DatasetWithFactors,
     model: lvm.LatentVariableModel,
 ) -> MIMetrics:
-    mi_zi_yj = _compute_mi_zi_yj(dataset, model, lambda log_q: log_q).cpu()
-    mi_zmi_yj = _compute_mi_zi_yj(
-        dataset, model, lambda log_q: log_q.sum(-1, keepdim=True) - log_q
-    ).cpu()
     ent_yj = dataset.factor_entropies()
-    mig = (_gap(mi_zi_yj, 0) / ent_yj).mean().item()
-    uig = ((mi_zi_yj - mi_zmi_yj) / ent_yj).amax(0).mean().item()
-    ltig = (_gap(mi_zmi_yj, 0, largest=False) / ent_yj).mean().item()
+    mi_zi_yj = _compute_mi_zi_yj(dataset, model.aggregated_entropy).cpu() / ent_yj
+    mi_zmi_yj = _compute_mi_zi_yj(dataset, model.aggregated_loo_entropy).cpu() / ent_yj
+    mig = _gap(mi_zi_yj, 0).mean().item()
+    uig = (mi_zi_yj - mi_zmi_yj).amax(0).mean().item()
+    ltig = _gap(mi_zmi_yj, 0, largest=False).mean().item()
     return MIMetrics(mi_zi_yj, mi_zmi_yj, mig, uig, ltig)
 
 
 def _compute_mi_zi_yj(
-    dataset: data.DatasetWithFactors,
-    model: lvm.LatentVariableModel,
-    selector: Callable[[torch.Tensor], torch.Tensor],
+    dataset: data.DatasetWithFactors, entropy_fn: EntropyFn
 ) -> torch.Tensor:
     N = len(dataset)
     N_sub = N // 50
-    batch_size = 1024
+    inner_bsize = 256
+    outer_bsize = 1024
+
+    def ent(dataset: torch.utils.data.Dataset[Any], n: int) -> torch.Tensor:
+        return entropy_fn(dataset, n, min(n, N_sub), inner_bsize, outer_bsize)
 
     # Compute H(z_i).
-    ent_zi = model.aggregated_entropy(dataset, N, N_sub, batch_size, selector)
+    ent_zi = ent(dataset, N)
 
     # Compute H(z_i|y_j).
     # Note: we assume p(y_j) is a uniform distribution.
@@ -89,10 +93,7 @@ def _compute_mi_zi_yj(
         ent_zi_yj_points: list[torch.Tensor] = []
         for yj in range(dataset.n_factor_values[j]):
             subset = dataset.fix_factor(j, yj)
-            n = len(subset)
-            ent_zi_yj_point = model.aggregated_entropy(
-                subset, n, min(n, N_sub), batch_size, selector
-            )
+            ent_zi_yj_point = ent(subset, len(subset))
             ent_zi_yj_points.append(ent_zi_yj_point)
         ent_zi_yj_list.append(torch.stack(ent_zi_yj_points).mean(0))
     ent_zi_yj = torch.stack(ent_zi_yj_list, 1)

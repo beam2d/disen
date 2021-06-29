@@ -29,6 +29,10 @@ class Distribution:
         return self.shape[2:]
 
     @property
+    def mean(self) -> torch.Tensor:
+        return self.base.mean
+
+    @property
     def params(self) -> tuple[torch.Tensor, ...]:
         raise NotImplementedError
 

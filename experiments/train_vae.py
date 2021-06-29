@@ -24,11 +24,12 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
         optimizer=torch.optim.Adam(model.parameters(), lr=5e-4),
         batch_size=64,
         eval_batch_size=1024,
-        n_epochs=30,
+        n_epochs=2,
         out_dir=out_dir,
     )
+    disen.evaluation.render_latent_traversal(dataset, model, 12, out_dir / "traversal")
     disen.evaluation.evaluate_mi_metrics_with_attacks(
-        "vae", dataset, model, result, out_dir, noise=2.0, mix_rate=0.5
+        "vae", dataset, model, result, out_dir, alpha=[0.25, 0.5, 0.75, 1.0]
     )
     result.save(out_dir / "result.json")
 

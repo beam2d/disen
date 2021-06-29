@@ -1,4 +1,4 @@
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 import torch
 
@@ -95,14 +95,7 @@ class RedundancyAttack(base.Attack):
 
         z_cat = torch.cat([z_base, z_new], -1)
         loc_cat = torch.cat([q_base.loc, q_new.loc], -1)
-
-        cov00 = q_base.variance.diag_embed()
-        cov01 = cov00 @ self.au.T
-        cov10 = cov01.swapaxes(-2, -1)
-        cov11 = q_new.cov
-        cov0x = torch.cat([cov00, cov01], -1)
-        cov1x = torch.cat([cov10, cov11], -1)
-        cov_cat = torch.cat([cov0x, cov1x], -2)
+        cov_cat = self._make_cov(q_base, q_new)
 
         if loc_cat.ndim < z_cat.ndim:
             # extra batch dimension in z; make it explicit
@@ -115,23 +108,32 @@ class RedundancyAttack(base.Attack):
         cov_loo = nn.principal_submatrices(cov_cat)
         z_loo = nn.enumerate_loo(z_cat)
         q_loo = distributions.MultivariateNormal(loc_loo, cov_loo)
+        del z_cat, loc_cat, cov_cat, loc_loo, cov_loo
         log_q_loo = torch.movedim(q_loo.log_prob(z_loo), 0, -1)
 
         base_size = z_base.shape[-1]
         log_q_loo_base = log_q_loo[..., :base_size] + log_q_sum_other
         log_q_loo_new = log_q_loo[..., base_size:] + log_q_sum_other
+
         if has_other:
             log_q_loo_other = log_q_sum_other - log_q_other + log_q_sum_rest
-
-        base_pos = sum(self.base.spec[i].size for i in range(self.base_i))
-        to_be_cat: list[torch.Tensor] = []
-        if has_other:
-            to_be_cat.append(log_q_loo_other[..., :base_pos])
-        to_be_cat.append(log_q_loo_base)
-        if has_other:
-            to_be_cat.append(log_q_loo_other[..., base_pos:])
-        to_be_cat.append(log_q_loo_new)
-        return torch.cat(to_be_cat, -1)
+            base_pos = sum(self.base.spec[i].size for i in range(self.base_i))
+            return torch.cat([
+                log_q_loo_other[..., :base_pos],
+                log_q_loo_base,
+                log_q_loo_other[..., base_pos:],
+                log_q_loo_new,
+            ], -1)
+        return torch.cat([log_q_loo_base, log_q_loo_new], -1)
 
     def _multiply_au(self, x: torch.Tensor) -> torch.Tensor:
         return (self.au @ x[..., None])[..., 0]
+
+    def _make_cov(
+        self, q_base: distributions.Normal, q_new: distributions.MultivariateNormal
+    ) -> torch.Tensor:
+        cov00 = q_base.variance.diag_embed()
+        cov01 = cov00 @ self.au.T
+        cov10 = cov01.swapaxes(-2, -1)
+        cov11 = q_new.cov
+        return nn.block_matrix([[cov00, cov01], [cov10, cov11]])
