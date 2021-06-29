@@ -41,6 +41,7 @@ def train_cascade_vae(
         n_iters=300_000,
         out_dir=out_dir,
     )
+    disen.evaluation.render_latent_traversal(dataset, model, 12, out_dir / "traversal")
     disen.evaluation.evaluate_mi_metrics_with_attacks(
         "cascadevae", dataset, model, result, out_dir, alpha=[0.25, 0.5, 0.75, 1.0]
     )

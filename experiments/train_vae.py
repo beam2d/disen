@@ -24,7 +24,7 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
         optimizer=torch.optim.Adam(model.parameters(), lr=5e-4),
         batch_size=64,
         eval_batch_size=1024,
-        n_epochs=2,
+        n_epochs=30,
         out_dir=out_dir,
     )
     disen.evaluation.render_latent_traversal(dataset, model, 12, out_dir / "traversal")
