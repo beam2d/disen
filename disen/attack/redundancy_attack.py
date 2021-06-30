@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence, TypeVar
 
 import torch
 
@@ -6,15 +6,13 @@ from .. import distributions, models, nn
 from . import base
 
 
-class RedundancyAttack(base.Attack):
+_BaseModel = TypeVar("_BaseModel", bound=models.LatentVariableModel)
+
+
+class RedundancyAttack(base.Attack[_BaseModel]):
     """z' = (z, alpha * U @ z + eps) where eps ~ N(0, I) and U is orthogonal."""
 
-    def __init__(
-        self,
-        base: models.LatentVariableModel,
-        alpha: float,
-        U: torch.Tensor,
-    ) -> None:
+    def __init__(self, base: _BaseModel, alpha: float, U: torch.Tensor) -> None:
         super().__init__(base)
         self.au = alpha * U
         self.base_i = -1
@@ -101,14 +99,11 @@ class RedundancyAttack(base.Attack):
             # extra batch dimension in z; make it explicit
             loc_cat = loc_cat[None]
             cov_cat = cov_cat[None]
-        q = distributions.MultivariateNormal(loc_cat, cov_cat)
-        log_q_sum_rest = q.log_prob(z_cat)
 
         loc_loo = nn.enumerate_loo(loc_cat)
         cov_loo = nn.principal_submatrices(cov_cat)
         z_loo = nn.enumerate_loo(z_cat)
         q_loo = distributions.MultivariateNormal(loc_loo, cov_loo)
-        del z_cat, loc_cat, cov_cat, loc_loo, cov_loo
         log_q_loo = torch.movedim(q_loo.log_prob(z_loo), 0, -1)
 
         base_size = z_base.shape[-1]
@@ -116,6 +111,8 @@ class RedundancyAttack(base.Attack):
         log_q_loo_new = log_q_loo[..., base_size:] + log_q_sum_other
 
         if has_other:
+            q_cat = distributions.MultivariateNormal(loc_cat, cov_cat)
+            log_q_sum_rest = q_cat.log_prob(z_cat)[..., None]
             log_q_loo_other = log_q_sum_other - log_q_other + log_q_sum_rest
             base_pos = sum(self.base.spec[i].size for i in range(self.base_i))
             return torch.cat([

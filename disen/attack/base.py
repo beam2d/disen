@@ -1,14 +1,17 @@
-from typing import Sequence
+from typing import Generic, Sequence, TypeVar
 
 import torch
 
 from .. import distributions, models
 
 
-class Attack(models.LatentVariableModel):
+_BaseModel = TypeVar("_BaseModel", bound=models.LatentVariableModel)
+
+
+class Attack(models.LatentVariableModel, Generic[_BaseModel]):
     loss_keys = ()
 
-    def __init__(self, base: models.LatentVariableModel) -> None:
+    def __init__(self, base: _BaseModel) -> None:
         super().__init__()
         self.base = base
         self.spec = base.spec
