@@ -15,16 +15,18 @@ def train_joint_vae(
     dataset = disen.data.DSprites(dataset_path)
     image_size = dataset[0][0].shape[-1]
     encoder = disen.nn.SimpleConvNet(image_size, 1, 256)
-    decoder = disen.nn.SimpleTransposedConvNet(image_size, n_categories + n_continuous, 1)
+    decoder = disen.nn.SimpleTransposedConvNet(
+        image_size, n_categories + n_continuous, 1
+    )
     model = disen.models.JointVAE(
         encoder,
         decoder,
         n_categories=n_categories,
         n_continuous=n_continuous,
-        gamma=150.,
+        gamma=150.0,
         temperature=0.67,
         max_capacity_discrete=1.1,
-        max_capacity_continuous=40.,
+        max_capacity_continuous=40.0,
         max_capacity_iteration=300_000,
     )
     model.to(device)
@@ -41,6 +43,8 @@ def train_joint_vae(
         out_dir=out_dir,
     )
     disen.evaluation.render_latent_traversal(dataset, model, 12, out_dir / "traversal")
+    disen.evaluation.evaluate_factor_vae_score(model, dataset, result)
+    disen.evaluation.evaluate_beta_vae_score(model, dataset, result, out_dir)
     disen.evaluation.evaluate_mi_metrics_with_attacks(
         "jointvae", dataset, model, result, out_dir, alpha=[0.25, 0.5, 0.75, 1.0]
     )

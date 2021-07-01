@@ -26,6 +26,9 @@ class Result:
             j = json.load(f)
         return Result(**j)
 
+    def add_metric(self, name: str, value: float) -> None:
+        self.final_metrics[name] = value
+
     def plot_history(self, out_dir: Union[str, pathlib.Path]) -> None:
         _plot_history(self.history, pathlib.Path(out_dir))
 

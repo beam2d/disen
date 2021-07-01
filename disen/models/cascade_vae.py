@@ -50,7 +50,7 @@ class CascadeVAE(lvm.LatentVariableModel):
     def encode(self, x: torch.Tensor) -> list[distributions.Distribution]:
         z = self._infer_z(x)
         probs = self._infer_c(x, z.sample())
-        c = _categorical_from_value(probs)
+        c = distributions.OneHotCategoricalWithProbs(probs)
         return [z, c]
 
     def decode(self, zs: Sequence[torch.Tensor]) -> distributions.Distribution:

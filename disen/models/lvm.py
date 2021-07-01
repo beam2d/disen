@@ -40,6 +40,10 @@ class LatentVariableModel(torch.nn.Module):
     def __call__(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         return super().__call__(x)
 
+    def infer_mean(self, x: torch.Tensor) -> list[torch.Tensor]:
+        q_zs = self.encode(x)
+        return [q_z.mean for q_z in q_zs]
+
     def log_posterior(
         self, x: torch.Tensor, zs: Sequence[torch.Tensor]
     ) -> torch.Tensor:

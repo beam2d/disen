@@ -62,3 +62,25 @@ class RelaxedOneHotCategorical(distribution.Distribution):
     @property
     def strict(self) -> OneHotCategorical:
         return OneHotCategorical(self._base.logits)
+
+
+class OneHotCategoricalWithProbs(distribution.Distribution):
+    def __init__(self, probs: torch.Tensor, value: Optional[torch.Tensor] = None) -> None:
+        super().__init__(value)
+        assert probs.ndim >= 3
+        self._base = D.OneHotCategorical(probs=probs)
+
+    @property
+    def base(self) -> D.OneHotCategorical:
+        return self._base
+
+    @property
+    def params(self) -> tuple[torch.Tensor]:
+        return (self._base.probs,)
+
+    @classmethod
+    def from_params(
+        cls, params: tuple[torch.Tensor, ...], value: Optional[torch.Tensor] = None
+    ) -> OneHotCategoricalWithProbs:
+        (probs,) = params
+        return OneHotCategoricalWithProbs(probs, value)
