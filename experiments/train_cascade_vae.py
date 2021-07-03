@@ -1,4 +1,5 @@
 import argparse
+import logging
 import pathlib
 
 import torch
@@ -9,6 +10,11 @@ import disen
 def train_cascade_vae(
     dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path
 ) -> None:
+    out_dir.mkdir()
+    logging.basicConfig(
+        filename=str(out_dir / "log.txt"), filemode="w", level=logging.INFO
+    )
+
     n_categories = 3
     n_continuous = 6
     n_latent_features = n_categories + n_continuous
@@ -30,8 +36,6 @@ def train_cascade_vae(
     )
     model.to(device)
 
-    out_dir.mkdir()
-
     result = disen.training.train_model(
         model,
         dataset,
@@ -45,7 +49,7 @@ def train_cascade_vae(
     disen.evaluation.evaluate_factor_vae_score(model, dataset, result)
     disen.evaluation.evaluate_beta_vae_score(model, dataset, result, out_dir)
     disen.evaluation.evaluate_mi_metrics_with_attacks(
-        "cascadevae", dataset, model, result, out_dir, alpha=[0.25, 0.5, 0.75, 1.0]
+        "cascadevae", dataset, model, result, out_dir, alpha=[0.5, 1.0, 1.5, 2.0]
     )
     result.save(out_dir / "result.json")
 

@@ -1,10 +1,14 @@
 import json
+import logging
 import pathlib
 
 import torch
 import torch.nn.functional as F
 
 from .. import data, evaluation, models
+
+
+_logger = logging.getLogger(__name__)
 
 
 def evaluate_beta_vae_score(
@@ -28,6 +32,7 @@ def beta_vae_score(
     lr: float = 0.01,
     n_iters: int = 10_000,
 ) -> float:
+    _logger.info("computing BetaVAE score...")
     model.eval()
 
     device = model.device

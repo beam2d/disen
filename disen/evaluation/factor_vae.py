@@ -1,9 +1,13 @@
 import itertools
+import logging
 from typing import Iterable
 
 import torch
 
 from .. import data, evaluation, models
+
+
+_logger = logging.getLogger(__name__)
 
 
 def evaluate_factor_vae_score(
@@ -24,6 +28,7 @@ def factor_vae_score(
     sample_size: int = 100,
     n_normalizer_data: int = 65536,
 ) -> float:
+    _logger.info("computing FactorVAE score...")
     model.eval()
     n_factors = dataset.n_factors
     n_latents = model.spec.size
@@ -58,7 +63,8 @@ def factor_vae_score(
     n_pos = 0
     for x, j in test_loader:
         i = embed_sample(x)
-        n_pos += (classifier[i] == j).sum()
+        n_pos += int((classifier[i] == j).sum())
+
     return n_pos / n_test
 
 

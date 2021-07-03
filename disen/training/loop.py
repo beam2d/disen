@@ -1,9 +1,13 @@
+import logging
 import pathlib
 from typing import Optional
 
 import torch
 
 from .. import evaluation, models
+
+
+_logger = logging.getLogger(__name__)
 
 
 def train_model(
@@ -17,7 +21,7 @@ def train_model(
     n_iters: Optional[int] = None,
     num_workers: int = 1,
 ) -> evaluation.Result:
-    result = evaluation.Result([], {})
+    result = evaluation.Result.new()
     iteration = 0
     epoch = 0
     assert n_epochs or n_iters
@@ -33,7 +37,7 @@ def train_model(
 
     while not finished:
         epoch += 1
-        print(f"epoch: {epoch}...")
+        _logger.info(f"epoch: {epoch}...")
 
         model.train()
         for x, _ in loader:

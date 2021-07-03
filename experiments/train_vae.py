@@ -1,4 +1,5 @@
 import argparse
+import logging
 import pathlib
 
 import torch
@@ -7,6 +8,11 @@ import disen
 
 
 def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) -> None:
+    out_dir.mkdir()
+    logging.basicConfig(
+        filename=str(out_dir / "log.txt"), filemode="w", level=logging.INFO
+    )
+
     n_latents = 6
 
     dataset = disen.data.DSprites(dataset_path)
@@ -15,8 +21,6 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
     decoder = disen.nn.SimpleTransposedConvNet(image_size, n_latents, 1)
     model = disen.models.VAE(encoder, decoder, n_latents, beta=5.0)
     model.to(device)
-
-    out_dir.mkdir()
 
     result = disen.training.train_model(
         model,
@@ -31,7 +35,7 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
     disen.evaluation.evaluate_factor_vae_score(model, dataset, result)
     disen.evaluation.evaluate_beta_vae_score(model, dataset, result, out_dir)
     disen.evaluation.evaluate_mi_metrics_with_attacks(
-        "vae", dataset, model, result, out_dir, alpha=[0.25, 0.5, 0.75, 1.0]
+        "vae", dataset, model, result, out_dir, alpha=[0.5, 1.0, 1.5, 2.0]
     )
     result.save(out_dir / "result.json")
 

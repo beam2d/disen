@@ -62,14 +62,25 @@ def cov(D: int, alpha: float, U: torch.Tensor, std: torch.Tensor) -> torch.Tenso
     return torch.cat([cov0x, cov1x], 0)
 
 
+@pytest.fixture
+def N() -> int:
+    return 1000
+
+
+@pytest.fixture
+def B() -> int:
+    return 100
+
+
 def test_redundancy_attack_aggregated_entropy(
     model: disen.attack.RedundancyAttack[NoiseModel],
     D: int,
     cov: torch.Tensor,
+    N: int,
+    B: int,
 ) -> None:
-    N = 1000
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = model.aggregated_entropy(dataset, N, N, N, N)
+    H = model.aggregated_entropy(dataset, N, B, B)
 
     expect = _normal_entropy(cov.diag())
 
@@ -80,10 +91,11 @@ def test_redundancy_attack_aggregated_loo_entropy(
     model: disen.attack.RedundancyAttack[NoiseModel],
     D: int,
     cov: torch.Tensor,
+    N: int,
+    B: int,
 ) -> None:
-    N = 1000
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = model.aggregated_loo_entropy(dataset, N, N, N, N)
+    H = model.aggregated_loo_entropy(dataset, N, B, B)
 
     logdetcov = disen.nn.principal_submatrices(cov).logdet()
     expect = ((2 * D - 1) * math.log(2 * math.pi * math.e) + logdetcov) / 2
@@ -140,10 +152,11 @@ def test_redundancy_attack_aggregated_entropy_mixed(
     mixed_model: disen.attack.RedundancyAttack[MixedModel],
     D: int,
     cov: torch.Tensor,
+    N: int,
+    B: int,
 ) -> None:
-    N = 1000
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = mixed_model.aggregated_entropy(dataset, N, N, N, N)
+    H = mixed_model.aggregated_entropy(dataset, N, B, B)
 
     cate_expect = _categorical_entropy(mixed_model.base.logits)
     real_expect = _normal_entropy(cov.diag())
@@ -156,10 +169,11 @@ def test_redundancy_attack_aggregated_loo_entropy_mixed(
     mixed_model: disen.attack.RedundancyAttack[MixedModel],
     D: int,
     cov: torch.Tensor,
+    N: int,
+    B: int,
 ) -> None:
-    N = 1000
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = mixed_model.aggregated_loo_entropy(dataset, N, N, N, N)
+    H = mixed_model.aggregated_loo_entropy(dataset, N, B, B)
 
     log2pie = math.log(2 * math.pi) + 1
 

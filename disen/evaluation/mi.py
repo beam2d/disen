@@ -1,4 +1,6 @@
 import dataclasses
+import itertools
+import logging
 import pathlib
 from typing import Any, Callable, Sequence
 
@@ -8,7 +10,8 @@ from .. import attack, data, evaluation
 from ..models import lvm
 
 
-EntropyFn = Callable[[torch.utils.data.Dataset[Any], int, int, int, int], torch.Tensor]
+EntropyFn = Callable[[torch.utils.data.Dataset[Any], int, int, int], torch.Tensor]
+_logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -27,13 +30,12 @@ class MIMetrics:
             f.write(f"uig={self.uig}\n")
             f.write(f"ltig={self.ltig}\n")
 
-    def set_final_metrics(
-        self, final_metrics: dict[str, float], prefix: str
-    ) -> dict[str, float]:
-        final_metrics[prefix + ".mig"] = self.mig
-        final_metrics[prefix + ".uig"] = self.uig
-        final_metrics[prefix + ".ltig"] = self.ltig
-        return final_metrics
+    def set_metrics(
+        self, result: evaluation.Result, param_name: str, param_value: float
+    ) -> None:
+        result.add_parameterized_metric(param_name, param_value, "mig", self.mig)
+        result.add_parameterized_metric(param_name, param_value, "uig", self.uig)
+        result.add_parameterized_metric(param_name, param_value, "ltig", self.ltig)
 
 
 def evaluate_mi_metrics_with_attacks(
@@ -44,18 +46,15 @@ def evaluate_mi_metrics_with_attacks(
     out_dir: pathlib.Path,
     alpha: Sequence[float] = (),
 ) -> None:
-    attacks = {name: model}
-    if alpha:
-        D = model.spec.real_components_size
-        U = (torch.eye(D) - 2 / D).to(model.device)
-        for a in alpha:
-            attacks[f"{name}_redundancy_{a}"] = attack.RedundancyAttack(model, a, U)
+    D = model.spec.real_components_size
+    U = (torch.eye(D) - 2 / D).to(model.device)
 
-    for model_name, target in attacks.items():
-        print(f"evaluating {model_name}...")
+    for a in itertools.chain([0.0], alpha):
+        _logger.info(f"evaluating {name} [alpha={a}]...")
+        target = model if a == 0.0 else attack.RedundancyAttack(model, a, U)
         mi_metrics = evaluate_mi_metrics(dataset, target)
-        mi_metrics.save(out_dir / f"mi_metrics-{model_name}.txt")
-        mi_metrics.set_final_metrics(result.final_metrics, model_name)
+        mi_metrics.save(out_dir / f"mi_metrics-{name}-alpha={a}.txt")
+        mi_metrics.set_metrics(result, "alpha", a)
 
 
 @torch.no_grad()
@@ -75,16 +74,16 @@ def evaluate_mi_metrics(
 def _compute_mi_zi_yj(
     dataset: data.DatasetWithFactors, entropy_fn: EntropyFn
 ) -> torch.Tensor:
-    N = len(dataset)
-    N_sub = N // 50
     inner_bsize = 256
     outer_bsize = 1024
 
-    def ent(dataset: torch.utils.data.Dataset[Any], n: int) -> torch.Tensor:
-        return entropy_fn(dataset, n, min(n, N_sub), inner_bsize, outer_bsize)
+    def ent(dataset: torch.utils.data.Dataset[Any], sample_size: int) -> torch.Tensor:
+        sample_size = min(sample_size, data.dataset_size(dataset))
+        return entropy_fn(dataset, sample_size, inner_bsize, outer_bsize)
 
     # Compute H(z_i).
-    ent_zi = ent(dataset, N)
+    # TODO(beam2d): Do stratified sampling over each y_j.
+    ent_zi = ent(dataset, 10_000)
 
     # Compute H(z_i|y_j).
     # Note: we assume p(y_j) is a uniform distribution.
@@ -93,7 +92,7 @@ def _compute_mi_zi_yj(
         ent_zi_yj_points: list[torch.Tensor] = []
         for yj in range(dataset.n_factor_values[j]):
             subset = dataset.fix_factor(j, yj)
-            ent_zi_yj_point = ent(subset, len(subset))
+            ent_zi_yj_point = ent(subset, 10_000)
             ent_zi_yj_points.append(ent_zi_yj_point)
         ent_zi_yj_list.append(torch.stack(ent_zi_yj_points).mean(0))
     ent_zi_yj = torch.stack(ent_zi_yj_list, 1)
