@@ -101,7 +101,8 @@ def _compute_variance(
             assert z.ndim == batch_dims + 3
             N = z.shape[batch_dims]
             c = z.argmax(batch_dims + 2)
-            c_var = (c[..., :, None] == c[..., None, :]).sum() / (2 * N * (N - 1))
+            c_match = c[..., :, None] == c[..., None, :]
+            c_var = c_match.sum((-2, -1)) / (2 * N * (N - 1))
             zs_var.append(c_var)
         else:
             raise ValueError("invalid latent domain")

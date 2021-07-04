@@ -34,7 +34,11 @@ class Result:
     def load(path: Union[str, pathlib.Path]) -> Result:
         with open(path, "r") as f:
             j = json.load(f)
-        return Result(**j)
+        ret = Result.new()
+        ret.history = j["history"]
+        for m, p in j["metrics"]:
+            ret.add_parameterized_metric(m["name"], m["value"], p["name"], p["value"])
+        return ret
 
     def add_metric(self, name: str, value: float) -> None:
         self.add_parameterized_metric("", 0.0, name, value)
