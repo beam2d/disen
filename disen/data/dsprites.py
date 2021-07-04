@@ -41,6 +41,9 @@ class DSprites(dataset_with_factors.DatasetWithFactors):
         d = numpy.load(path, mmap_mode="r")
         self._images = d["imgs"]
         self._factors = d["latents_classes"]
+        self._strides = (
+            torch.as_tensor(self.n_factor_values[1:] + (1,)).flip(0).cumprod(0).flip(0)
+        )
 
     def __len__(self) -> int:
         return self._images.shape[0]
@@ -49,6 +52,9 @@ class DSprites(dataset_with_factors.DatasetWithFactors):
         image = self._images[index, None].astype(numpy.float32)
         factor = self._factors[index, 1:]
         return (torch.as_tensor(image), torch.as_tensor(factor))
+
+    def get_index(self, factors: torch.Tensor) -> torch.Tensor:
+        return factors @ self._strides
 
     def fix_factor(
         self, factor: int, value: int

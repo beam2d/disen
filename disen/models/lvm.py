@@ -160,8 +160,7 @@ class LatentVariableModel(torch.nn.Module):
     ) -> torch.Tensor:
         subset = data.subsample(dataset, sample_size)
         zs = self._infer_aggregated(subset, outer_batch_size)
-        # log_q_z = self._log_aggregated_posterior(dataset, inner_batch_size, zs, log_q)
-        log_q_z = self._log_aggregated_posterior(subset, inner_batch_size, zs, log_q)
+        log_q_z = self._log_aggregated_posterior(dataset, inner_batch_size, zs, log_q)
         return -log_q_z.mean(0)
 
     def _infer_aggregated(

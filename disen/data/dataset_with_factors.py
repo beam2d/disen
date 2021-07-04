@@ -19,6 +19,9 @@ class DatasetWithFactors(torch.utils.data.Dataset[ImageWithFactors]):
     def __getitem__(self, index: int) -> ImageWithFactors:
         raise NotImplementedError
 
+    def get_index(self, factors: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
     def fix_factor(
         self, factor: int, value: int
     ) -> torch.utils.data.Subset[ImageWithFactors]:
@@ -26,7 +29,25 @@ class DatasetWithFactors(torch.utils.data.Dataset[ImageWithFactors]):
 
     def factor_entropies(self) -> torch.Tensor:
         """Compute [H(y_j)]_j."""
-        return torch.as_tensor([math.log(k) for k in self.n_factor_values])
+        return torch.as_tensor(self.n_factor_values).log()
+
+    def sample_stratified(
+        self, sample_size: int
+    ) -> torch.utils.data.Subset[ImageWithFactors]:
+        """Subsample the dataset by balancing each factor.
+        
+        For each factor, the subsample contains the (almost) same number of frequencies
+        of realizations.
+        """
+        factors = torch.empty((sample_size, self.n_factors), dtype=torch.int64)
+        for j, n in enumerate(self.n_factor_values):
+            reps = sample_size // n
+            sample = list(range(n)) * reps
+            sample += random.sample(range(n), sample_size - len(sample))
+            random.shuffle(sample)
+            factors[:, j] = torch.as_tensor(sample)
+        indices = self.get_index(factors).tolist()
+        return torch.utils.data.Subset(self, indices)
 
 
 class DatasetWithCommonFactor(

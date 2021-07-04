@@ -36,8 +36,8 @@ class Result:
             j = json.load(f)
         ret = Result.new()
         ret.history = j["history"]
-        for m, p in j["metrics"]:
-            ret.add_parameterized_metric(m["name"], m["value"], p["name"], p["value"])
+        for p, m in j["metrics"]:
+            ret.add_parameterized_metric(p["name"], p["value"], m["name"], m["value"])
         return ret
 
     def add_metric(self, name: str, value: float) -> None:

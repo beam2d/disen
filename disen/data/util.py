@@ -6,14 +6,18 @@ import torch
 
 _ItemType = TypeVar("_ItemType")
 
+
 def subsample(
-    data: torch.utils.data.Dataset[_ItemType], sample_size: int
+    dataset: torch.utils.data.Dataset[_ItemType], sample_size: int
 ) -> torch.utils.data.Dataset[_ItemType]:
-    total_size = dataset_size(data)
+    total_size = dataset_size(dataset)
     if total_size == sample_size:
-        return data
+        return dataset
+    # isinstance does not work with mypy here... we resort to Any.
+    if hasattr(dataset, "sample_stratified"):
+        return cast(Any, dataset).sample_stratified(sample_size)
     indices = random.sample(range(total_size), sample_size)
-    return torch.utils.data.Subset(data, indices)
+    return torch.utils.data.Subset(dataset, indices)
 
 
 def dataset_size(data: torch.utils.data.Dataset[_ItemType]) -> int:
