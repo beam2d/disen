@@ -1,5 +1,4 @@
 import argparse
-import logging
 import pathlib
 
 import torch
@@ -8,10 +7,7 @@ import disen
 
 
 def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) -> None:
-    out_dir.mkdir()
-    logging.basicConfig(
-        filename=str(out_dir / "log.txt"), filemode="w", level=logging.INFO
-    )
+    disen.setup_logger(out_dir)
 
     n_latents = 6
 
