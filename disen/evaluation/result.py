@@ -10,7 +10,7 @@ import pandas
 import seaborn
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, order=True)
 class NamedValue:
     name: str
     value: float
@@ -74,7 +74,10 @@ def summarize_multiple_trials(
     metrics_summary: dict[str, float] = {}
     for metric_name, param in sorted(metrics):
         values = numpy.asarray(metrics[metric_name, param])
-        name = f"{metric_name}-{param.name}={param.value}"
+        if param.name == "":
+            name = metric_name
+        else:
+            name = f"{metric_name}-{param.name}={param.value}"
         metrics_summary[f"{name}.mean"] = float(values.mean())
         metrics_summary[f"{name}.std"] = float(values.std())
 
@@ -104,6 +107,8 @@ def _plot_metrics(
 ) -> None:
     metric_param_set = {(metric_name, param.name) for metric_name, param in metrics}
     for metric_name, param_name in metric_param_set:
+        if param_name == "":
+            continue
         data: dict[str, list[float]] = {metric_name: [], param_name: []}
         for (m, p), values in metrics.items():
             if m != metric_name or p.name != param_name:
@@ -116,4 +121,3 @@ def _plot_metrics(
         fg = seaborn.relplot(x=param_name, y=metric_name, kind="line", data=df)
         fg.savefig(out_dir / f"{metric_name}_vs_{param_name}.png")
         pyplot.close(fg.fig)
-        
