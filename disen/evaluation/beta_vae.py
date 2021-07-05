@@ -1,6 +1,7 @@
 import json
 import logging
 import pathlib
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -15,7 +16,7 @@ def evaluate_beta_vae_score(
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     result: evaluation.Result,
-    out_dir: pathlib.Path,
+    out_dir: Optional[pathlib.Path] = None,
 ) -> None:
     score = beta_vae_score(model, dataset, out_dir)
     result.add_metric("beta_vae_score", score)
@@ -25,7 +26,7 @@ def evaluate_beta_vae_score(
 def beta_vae_score(
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
-    out_dir: pathlib.Path,
+    out_dir: Optional[pathlib.Path] = None,
     sample_size: int = 200,
     eval_size: int = 800,
     batch_size: int = 10,
@@ -37,6 +38,7 @@ def beta_vae_score(
 
     device = model.device
     classifier = torch.nn.Linear(model.spec.size, dataset.n_factors, device=device)
+    classifier.weight.detach().zero_()
     optimizer = torch.optim.Adagrad(classifier.parameters(), lr=lr)
 
     n_train = n_iters * batch_size
@@ -47,7 +49,7 @@ def beta_vae_score(
 
     def embed_sample(xs: torch.Tensor) -> torch.Tensor:
         zs = model.infer_mean(xs.reshape(-1, *xs.shape[3:]))
-        zs = [z.reshape(*xs.shape[:3], model.spec.size) for z in zs]
+        zs = [z.reshape(*xs.shape[:3], *z.shape[1:]) for z in zs]
         z_diffs = torch.cat([_l1_diff(z[:, :, 0], z[:, :, 1]) for z in zs], -1)
         return z_diffs.mean(1)
 
@@ -78,8 +80,9 @@ def beta_vae_score(
             loss.backward()
             optimizer.step()
 
-    with open(out_dir / "beta_vae_accuracies.json", "w") as f:
-        json.dump(epoch_accs, f, indent=4)
+    if out_dir is not None:
+        with open(out_dir / "beta_vae_accuracies.json", "w") as f:
+            json.dump(epoch_accs, f, indent=4)
 
     return evaluate()
 

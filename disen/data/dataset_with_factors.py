@@ -1,4 +1,3 @@
-import math
 import random
 
 import torch
@@ -35,7 +34,7 @@ class DatasetWithFactors(torch.utils.data.Dataset[ImageWithFactors]):
         self, sample_size: int
     ) -> torch.utils.data.Subset[ImageWithFactors]:
         """Subsample the dataset by balancing each factor.
-        
+
         For each factor, the subsample contains the (almost) same number of frequencies
         of realizations.
         """

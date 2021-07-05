@@ -37,9 +37,10 @@ def factor_vae_score(
     normalizer = _compute_normalizer(model, dataset, n_normalizer_data)
 
     def embed_sample(x: torch.Tensor) -> torch.Tensor:
+        batch_size, _, sample_size = x.shape[:3]
         x_flat = x.reshape(batch_size * sample_size, *x.shape[3:])
         zs_flat = model.infer_mean(x_flat.to(model.device))
-        zs = [z.reshape(batch_size, sample_size, n_latents) for z in zs_flat]
+        zs = [z.reshape(batch_size, sample_size, *z.shape[1:]) for z in zs_flat]
         zs_var = _compute_variance(zs, model.spec, 1) / normalizer
         return zs_var.argmin(1).cpu()
 
@@ -79,7 +80,7 @@ def _compute_normalizer(
     loader_to_normalize = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=True, num_workers=1
     )
-    
+
     zs_batches = [
         model.infer_mean(batch[0].to(model.device))
         for batch in itertools.islice(loader_to_normalize, n_iters)
@@ -89,20 +90,20 @@ def _compute_normalizer(
 
 
 def _compute_variance(
-    zs: Iterable[torch.Tensor], spec: models.LatentSpec, batch_dims: int
+    zs: Iterable[torch.Tensor], spec: models.LatentSpec, sample_dim: int
 ) -> torch.Tensor:
     zs_var: list[torch.Tensor] = []
     for z, z_spec in zip(zs, spec):
         if z_spec.domain == "real":
-            assert z.ndim == batch_dims + 2
-            zs_var.append(z.var(batch_dims))
+            assert z.ndim == sample_dim + 2
+            zs_var.append(z.var(sample_dim))
         elif z_spec.domain == "categorical":
             # Use Gini's definition of empirical variance
-            assert z.ndim == batch_dims + 3
-            N = z.shape[batch_dims]
-            c = z.argmax(batch_dims + 2)
-            c_match = c[..., :, None] == c[..., None, :]
-            c_var = c_match.sum((-2, -1)) / (2 * N * (N - 1))
+            assert z.ndim == sample_dim + 3
+            N = z.shape[sample_dim]
+            c = z.argmax(sample_dim + 2)
+            c_match = c[..., :, None, :] == c[..., None, :, :]
+            c_var = c_match.sum((sample_dim, sample_dim + 1)) / (2 * N * (N - 1))
             zs_var.append(c_var)
         else:
             raise ValueError("invalid latent domain")

@@ -1,35 +1,10 @@
 import pathlib
-from typing import Sequence, Union, overload
+from typing import Union
 
 import numpy
 import torch
 
-from . import dataset_with_factors
-
-
-class _MidStridedIndices(Sequence[int]):
-    def __init__(self, outer_len: int, mid_stride: int, inner_len: int) -> None:
-        super().__init__()
-        self.inner_len = inner_len
-        self.mid_stride = mid_stride
-        self.size = outer_len * inner_len
-
-    def __len__(self) -> int:
-        return self.size
-
-    @overload
-    def __getitem__(self, index: int) -> int:
-        ...
-
-    @overload
-    def __getitem__(self, s: slice) -> Sequence[int]:
-        ...
-
-    def __getitem__(self, index):
-        # Subset only passes int
-        assert isinstance(index, int)
-        o, i = divmod(index, self.inner_len)
-        return o * self.mid_stride + i
+from . import dataset_with_factors, index_util
 
 
 class DSprites(dataset_with_factors.DatasetWithFactors):
@@ -44,6 +19,7 @@ class DSprites(dataset_with_factors.DatasetWithFactors):
         self._strides = (
             torch.as_tensor(self.n_factor_values[1:] + (1,)).flip(0).cumprod(0).flip(0)
         )
+        self._runtime_test()
 
     def __len__(self) -> int:
         return self._images.shape[0]
@@ -59,10 +35,15 @@ class DSprites(dataset_with_factors.DatasetWithFactors):
     def fix_factor(
         self, factor: int, value: int
     ) -> torch.utils.data.Subset[dataset_with_factors.ImageWithFactors]:
-        assert 0 <= factor < self.n_factors
-        assert 0 <= value < self.n_factor_values[factor]
-        outer_len = int(numpy.prod(self.n_factor_values[:factor]))
-        mid_stride = int(numpy.prod(self.n_factor_values[factor:]))
-        inner_len = int(numpy.prod(self.n_factor_values[factor + 1 :]))
-        indices = _MidStridedIndices(outer_len, mid_stride, inner_len)
+        strides = self._strides.tolist()
+        indices = index_util.StridedIndices(
+            index_util.skip_dim(self.n_factor_values, factor),
+            index_util.skip_dim(strides, factor),
+            value * strides[factor],
+        )
         return torch.utils.data.Subset(self, indices)
+
+    def _runtime_test(self) -> None:
+        ff = self.fix_factor(2, 5)
+        assert (ff[0][1] == torch.as_tensor([0, 0, 5, 0, 0])).all()
+        assert (ff[12345][1] == torch.as_tensor([2, 0, 5, 1, 25])).all()
