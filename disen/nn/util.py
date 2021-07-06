@@ -10,13 +10,28 @@ def block_matrix(blocks: list[list[torch.Tensor]]) -> torch.Tensor:
 
 def enumerate_loo(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """Enumerate all leave-one-out subvectors.
-    
+
     For n-vector, it returns (n, n - 1)-matrix. The original axis is shrinked to size
     (n - 1) and a new axis of size n is inserted to the leftmost position.
     """
     n = x.shape[dim]
     dim %= x.ndim
     return offdiagonal(torch.stack([x] * n), 0, dim + 1)
+
+
+def gini_variance(x: torch.Tensor, n_categories: int, dim: int = -1) -> torch.Tensor:
+    """Gini's empirical variance for categorical data.
+
+    For a vector (x_1, ..., x_N) of values in range(n_categories), Gini's empirical
+    variance is defined by the mean of 1 * (x_i != x_j) for all index pairs with
+    i != j.
+    """
+    x = x.movedim(dim, -1)
+    N = x.shape[-1]
+    count = torch.zeros(x.shape[:-1] + (n_categories,), dtype=torch.int32)
+    ones = torch.ones((), dtype=count.dtype).expand_as(x)
+    count.scatter_add_(-1, x, ones)
+    return (N ** 2 - (count ** 2).sum(-1)) / (2 * N * (N - 1))
 
 
 def offdiagonal(x: torch.Tensor, dim1: int = -2, dim2: int = -1) -> torch.Tensor:
@@ -33,7 +48,9 @@ def offdiagonal(x: torch.Tensor, dim1: int = -2, dim2: int = -1) -> torch.Tensor
     return torch.movedim(x, (-2, -1), (dim1, dim2))
 
 
-def principal_submatrices(x: torch.Tensor, dim1: int = -2, dim2: int = -1) -> torch.Tensor:
+def principal_submatrices(
+    x: torch.Tensor, dim1: int = -2, dim2: int = -1
+) -> torch.Tensor:
     """Extract the principal submatrices from a matrix.
 
     Here, the principal submatrices are the submatrices obtained by removing the row

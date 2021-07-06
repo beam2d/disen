@@ -30,6 +30,17 @@ def test_enumerate_loo() -> None:
     assert (expect == actual).all()
 
 
+def test_gini_variance() -> None:
+    K = 5
+    N = 4
+    x = torch.randint(0, K, (N, 5, 6))
+
+    actual = disen.nn.gini_variance(x, K, 0)
+    expect = (x[None, :] != x[:, None]).sum((0, 1)) / (2 * N * (N - 1))
+
+    torch.testing.assert_allclose(actual, expect)
+
+
 def test_offdiagonal() -> None:
     k, n = 3, 5
     x = torch.arange(k * n * n).reshape(k, n, n)

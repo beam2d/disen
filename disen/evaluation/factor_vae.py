@@ -4,7 +4,7 @@ from typing import Iterable
 
 import torch
 
-from .. import data, evaluation, models
+from .. import data, evaluation, models, nn
 
 
 _logger = logging.getLogger(__name__)
@@ -100,10 +100,9 @@ def _compute_variance(
         elif z_spec.domain == "categorical":
             # Use Gini's definition of empirical variance
             assert z.ndim == sample_dim + 3
-            N = z.shape[sample_dim]
+            K = z.shape[sample_dim + 2]
             c = z.argmax(sample_dim + 2)
-            c_match = c[..., :, None, :] == c[..., None, :, :]
-            c_var = c_match.sum((sample_dim, sample_dim + 1)) / (2 * N * (N - 1))
+            c_var = nn.gini_variance(c, K, sample_dim)
             zs_var.append(c_var)
         else:
             raise ValueError("invalid latent domain")
