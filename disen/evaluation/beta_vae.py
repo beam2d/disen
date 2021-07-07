@@ -17,8 +17,15 @@ def evaluate_beta_vae_score(
     dataset: data.DatasetWithFactors,
     result: evaluation.Result,
     out_dir: Optional[pathlib.Path] = None,
+    sample_size: int = 200,
+    eval_size: int = 800,
+    batch_size: int = 10,
+    lr: float = 0.01,
+    n_iters: int = 10_000,
 ) -> None:
-    score = beta_vae_score(model, dataset, out_dir)
+    score = beta_vae_score(
+        model, dataset, out_dir, sample_size, eval_size, batch_size, lr, n_iters
+    )
     result.add_metric("beta_vae_score", score)
 
 

@@ -28,8 +28,8 @@ def gini_variance(x: torch.Tensor, n_categories: int, dim: int = -1) -> torch.Te
     """
     x = x.movedim(dim, -1)
     N = x.shape[-1]
-    count = torch.zeros(x.shape[:-1] + (n_categories,), dtype=torch.int32)
-    ones = torch.ones((), dtype=count.dtype).expand_as(x)
+    count = torch.zeros(x.shape[:-1] + (n_categories,), dtype=x.dtype, device=x.device)
+    ones = torch.ones((), dtype=x.dtype, device=x.device).expand_as(x)
     count.scatter_add_(-1, x, ones)
     return (N ** 2 - (count ** 2).sum(-1)) / (2 * N * (N - 1))
 
