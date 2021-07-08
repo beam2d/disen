@@ -82,8 +82,7 @@ def _compute_mi_zi_yj(
         return entropy_fn(dataset, sample_size, inner_bsize, outer_bsize)
 
     # Compute H(z_i).
-    # TODO(beam2d): Do stratified sampling over each y_j.
-    ent_zi = ent(dataset, 20_000)
+    ent_zi = ent(dataset, 10_000)
 
     # Compute H(z_i|y_j).
     # Note: we assume p(y_j) is a uniform distribution.
