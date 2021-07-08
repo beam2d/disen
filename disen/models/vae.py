@@ -9,7 +9,7 @@ from . import latent_spec, lvm
 
 
 class VAE(lvm.LatentVariableModel):
-    loss_keys = ("loss", "kl_z", "nll", "elbo")
+    loss_keys = ("loss", "kl_z", "recon", "elbo")
 
     def __init__(
         self,
@@ -42,8 +42,7 @@ class VAE(lvm.LatentVariableModel):
         return distributions.Bernoulli(logits)
 
     def prior(self, batch_size: int) -> list[distributions.Distribution]:
-        device = self.loc.weight.device
-        loc = torch.zeros((batch_size, self.n_latents), device=device)
+        loc = torch.zeros((batch_size, self.n_latents), device=self.device)
         scale = torch.ones_like(loc)
         return [distributions.Normal(loc, scale)]
 
@@ -54,8 +53,8 @@ class VAE(lvm.LatentVariableModel):
 
         z = q_z.sample()
         p_x = self.decode([z])
-        nll = -p_x.log_prob(x).sum(list(range(1, x.ndim)))
-        elbo = nll + kl_z
-        loss = nll + self.beta * kl_z
+        recon = -p_x.log_prob(x).sum(list(range(1, x.ndim)))
+        elbo = -(recon + kl_z)
+        loss = recon + self.beta * kl_z
 
-        return {"loss": loss, "kl_z": kl_z, "nll": nll, "elbo": elbo}
+        return {"loss": loss, "kl_z": kl_z, "recon": recon, "elbo": elbo}

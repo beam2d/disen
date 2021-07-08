@@ -21,7 +21,7 @@ class LinearScheduler:
 
 
 class JointVAE(lvm.LatentVariableModel):
-    loss_keys = ("loss", "kl_c", "kl_z", "nll", "elbo")
+    loss_keys = ("loss", "kl_c", "kl_z", "recon", "elbo")
 
     def __init__(
         self,
@@ -104,8 +104,8 @@ class JointVAE(lvm.LatentVariableModel):
         c = q_c.sample()
         z = q_z.sample()
         p_x = self.decode([c, z])
-        nll = -p_x.log_prob(x).sum(list(range(1, x.ndim)))
-        elbo = nll + kl_c + kl_z
-        loss = nll + self.gamma * (abs(kl_c - C_c) + abs(kl_z - C_z))
+        recon = -p_x.log_prob(x).sum(list(range(1, x.ndim)))
+        elbo = -(recon + kl_c + kl_z)
+        loss = recon + self.gamma * (abs(kl_c - C_c) + abs(kl_z - C_z))
 
-        return {"loss": loss, "kl_c": kl_c, "kl_z": kl_z, "nll": nll, "elbo": elbo}
+        return {"loss": loss, "kl_c": kl_c, "kl_z": kl_z, "recon": recon, "elbo": elbo}

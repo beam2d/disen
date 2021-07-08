@@ -10,7 +10,7 @@ from . import latent_spec, lvm
 
 
 class CascadeVAE(lvm.LatentVariableModel):
-    loss_keys = ("loss", "kl_z", "nll", "elbo")
+    loss_keys = ("loss", "kl_z", "recon", "elbo")
 
     def __init__(
         self,
@@ -84,7 +84,7 @@ class CascadeVAE(lvm.LatentVariableModel):
         if self.iteration <= self.warmup_iteration:
             c = torch.zeros((B, k), dtype=x.dtype, device=x.device)
             p_x = self.decode([z, c])
-            nll = -p_x.log_prob(x).sum((1, 2, 3))
+            recon = -p_x.log_prob(x).sum((1, 2, 3))
         else:
             x_expand = x[:, None].expand(B, k, *_rdim(x)).reshape(B * k, *_rdim(x))
             z_expand = z[:, None].expand(B, k, *_rdim(z)).reshape(B * k, *_rdim(z))
@@ -92,15 +92,15 @@ class CascadeVAE(lvm.LatentVariableModel):
             c_all = c_all[None].expand(B, k, k).reshape(B * k, 1, k)
 
             p_x_all = self.decode([z_expand, c_all])
-            nll_p_all = -p_x_all.log_prob(x_expand).sum((1, 2, 3)).reshape(B, k)
-            c_cat = self._solve_mincost_flow(nll_p_all)
+            recon_all = -p_x_all.log_prob(x_expand).sum((1, 2, 3)).reshape(B, k)
+            c_cat = self._solve_mincost_flow(recon_all)
             c = F.one_hot(c_cat, k)[:, None]
-            nll = torch.gather(nll_p_all, 1, c_cat[:, None])[:, 0]
+            recon = torch.gather(recon_all, 1, c_cat[:, None])[:, 0]
 
-        elbo = nll + kl_z + kl_c
-        loss = nll + kl_z_ptw @ self._beta() + kl_c
+        elbo = -(recon + kl_z + kl_c)
+        loss = recon + kl_z_ptw @ self._beta() + kl_c
 
-        return {"loss": loss, "kl_z": kl_z, "nll": nll, "elbo": elbo}
+        return {"loss": loss, "kl_z": kl_z, "recon": recon, "elbo": elbo}
 
     def _infer_z(self, x: torch.Tensor) -> distributions.Distribution:
         h = self.encoder(x)
@@ -119,8 +119,8 @@ class CascadeVAE(lvm.LatentVariableModel):
         c_all = c_all[None].expand(B, k, k).reshape(B * k, 1, k)
 
         p_x_all = self.decode([z_expand, c_all])
-        nll_p_all = -p_x_all.log_prob(x_expand).sum((1, 2, 3)).reshape(B, k)
-        c_cat = nll_p_all.argmin(1)
+        recon_all = -p_x_all.log_prob(x_expand).sum((1, 2, 3)).reshape(B, k)
+        c_cat = recon_all.argmin(1)
         return cast(torch.Tensor, F.one_hot(c_cat, k)[:, None])
 
     def _beta(self) -> torch.Tensor:
@@ -133,8 +133,8 @@ class CascadeVAE(lvm.LatentVariableModel):
         return torch.as_tensor(betas, device=self.device)
 
     @torch.no_grad()
-    def _solve_mincost_flow(self, nll_p_all: torch.Tensor) -> torch.Tensor:
-        u = (nll_p_all - nll_p_all.min()).detach().cpu().numpy()
+    def _solve_mincost_flow(self, recon_all: torch.Tensor) -> torch.Tensor:
+        u = (recon_all - recon_all.min()).detach().cpu().numpy()
         lmd = self.duplicate_penalty
         n, k = u.shape
 
@@ -175,13 +175,8 @@ class CascadeVAE(lvm.LatentVariableModel):
 
         assert (c_cat >= 0).all()
         assert (c_cat < k).all()
-        return c_cat.to(nll_p_all.device)
+        return c_cat.to(recon_all.device)
 
 
 def _rdim(x: torch.Tensor) -> torch.Size:
     return x.shape[1:]
-
-
-def _categorical_from_value(value: torch.Tensor) -> distributions.OneHotCategorical:
-    logits = torch.where(value != 0.0, 0.0, -float("inf"))
-    return distributions.OneHotCategorical(logits, value)
