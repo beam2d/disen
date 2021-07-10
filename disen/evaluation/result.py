@@ -1,5 +1,6 @@
 from __future__ import annotations
 import dataclasses
+import logging
 import json
 import pathlib
 from typing import Sequence, Union
@@ -8,6 +9,9 @@ from matplotlib import pyplot
 import numpy
 import pandas
 import seaborn
+
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -39,6 +43,10 @@ class Result:
         for p, m in j["metrics"]:
             ret.add_parameterized_metric(p["name"], p["value"], m["name"], m["value"])
         return ret
+
+    def add_epoch(self, entry: dict[str, float]) -> None:
+        _logger.info(" ".join([f"{k}={v}" for k, v in entry.items()]))
+        self.history.append(entry)
 
     def add_metric(self, name: str, value: float) -> None:
         self.add_parameterized_metric("", 0.0, name, value)
