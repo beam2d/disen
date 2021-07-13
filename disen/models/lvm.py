@@ -47,7 +47,10 @@ class LatentVariableModel(torch.nn.Module):
     def log_posterior(
         self, x: torch.Tensor, zs: Sequence[torch.Tensor]
     ) -> torch.Tensor:
-        """Compute log density of the posterior."""
+        """Compute log density of the posterior.
+        
+        It computes [log q(z_i|x)]_i.
+        """
         q_zs = self.encode(x)
         log_q_zs = [q_z.log_prob(z) for z, q_z in zip(zs, q_zs)]
         return torch.cat(log_q_zs, -1)
@@ -57,10 +60,21 @@ class LatentVariableModel(torch.nn.Module):
     ) -> torch.Tensor:
         """Compute log density of the posterior at leave-one-out variables.
 
-        It computes [log q(z_{-i}) for all i].
+        It computes [log q(z_{-i}|x)]_i.
         """
         log_q = self.log_posterior(x, zs)
         return log_q.sum(-1, keepdim=True) - log_q
+
+    def log_joint_posterior(
+        self, x: torch.Tensor, zs: Sequence[torch.Tensor]
+    ) -> torch.Tensor:
+        """Compute log density of the joint posterior.
+        
+        It computes log q(z|x). Note that it adds a singleton dimension at the end for
+        consistency with other functions.
+        """
+        log_q = self.log_posterior(x, zs)
+        return log_q.sum(-1, keepdim=True)
 
     def log_aggregated_posterior(
         self,
@@ -90,6 +104,20 @@ class LatentVariableModel(torch.nn.Module):
         """
         return self._log_aggregated_posterior(
             dataset, batch_size, zs, self.log_loo_posterior
+        )
+
+    def log_aggregated_joint_posterior(
+        self,
+        dataset: torch.utils.data.Dataset[Any],
+        batch_size: int,
+        zs: Sequence[torch.Tensor],
+    ) -> torch.Tensor:
+        """Compute log density of the aggregated joint posterior.
+        
+        It aggregates the posterior over a given dataset of x to compute log q(z).
+        """
+        return self._log_aggregated_posterior(
+            dataset, batch_size, zs, self.log_joint_posterior
         )
 
     def _log_aggregated_posterior(
@@ -148,6 +176,25 @@ class LatentVariableModel(torch.nn.Module):
             inner_batch_size,
             outer_batch_size,
             self.log_loo_posterior,
+        )
+
+    def aggregated_joint_entropy(
+        self,
+        dataset: torch.utils.data.Dataset[Any],
+        sample_size: int,
+        inner_batch_size: int,
+        outer_batch_size: int,
+    ) -> torch.Tensor:
+        """Compute the entropy of joint posterior.
+        
+        It computes H(z) = E[-log E_x[q(z|x)]].
+        """
+        return self._aggregated_entropy(
+            dataset,
+            sample_size,
+            inner_batch_size,
+            outer_batch_size,
+            self.log_joint_posterior,
         )
 
     def _aggregated_entropy(

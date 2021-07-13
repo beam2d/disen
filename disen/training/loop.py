@@ -59,7 +59,7 @@ def train_model(
 
             entry = accum.mean()
             entry["iteration"] = iteration
-            result.history.append(entry)
+            result.add_epoch(entry)
 
         result.plot_history(out_dir)
 

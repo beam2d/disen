@@ -15,7 +15,7 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
     image_size = dataset[0][0].shape[-1]
     encoder = disen.nn.SimpleConvNet(image_size, 1, 256)
     decoder = disen.nn.SimpleTransposedConvNet(image_size, n_latents, 1)
-    model = disen.models.VAE(encoder, decoder, n_latents, beta=5.0)
+    model = disen.models.VAE(encoder, decoder, n_latents, beta=4.0)
     model.to(device)
 
     result = disen.training.train_model(
@@ -27,13 +27,7 @@ def train_vae(dataset_path: pathlib.Path, device: str, out_dir: pathlib.Path) ->
         n_epochs=30,
         out_dir=out_dir,
     )
-    disen.evaluation.render_latent_traversal(dataset, model, 12, out_dir / "traversal")
-    disen.evaluation.evaluate_factor_vae_score(model, dataset, result)
-    disen.evaluation.evaluate_beta_vae_score(model, dataset, result, out_dir)
-    disen.evaluation.evaluate_mi_metrics_with_attacks(
-        "vae", dataset, model, result, out_dir, alpha=[0.5, 1.0, 1.5, 2.0]
-    )
-    result.save(out_dir / "result.json")
+    disen.evaluation.evaluate_model(model, dataset, result, out_dir)
 
 
 def main() -> None:

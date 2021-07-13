@@ -22,15 +22,18 @@ def evaluate_beta_vae_score(
     batch_size: int = 10,
     lr: float = 0.01,
     n_iters: int = 10_000,
+    param: tuple[str, float] = ("", 0.0),
 ) -> None:
+    name = "noparam" if param[0] == "" else f"{param[0]}={param[1]}"
     score = beta_vae_score(
-        model, dataset, out_dir, sample_size, eval_size, batch_size, lr, n_iters
+        name, model, dataset, out_dir, sample_size, eval_size, batch_size, lr, n_iters
     )
-    result.add_metric("beta_vae_score", score)
+    result.add_parameterized_metric(*param, "beta_vae_score", score)
 
 
 @torch.no_grad()
 def beta_vae_score(
+    name: str,
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     out_dir: Optional[pathlib.Path] = None,
@@ -40,7 +43,7 @@ def beta_vae_score(
     lr: float = 0.01,
     n_iters: int = 10_000,
 ) -> float:
-    _logger.info("computing BetaVAE score...")
+    _logger.info(f"computing BetaVAE score [{name}]...")
     model.eval()
 
     device = model.device
@@ -88,7 +91,7 @@ def beta_vae_score(
             optimizer.step()
 
     if out_dir is not None:
-        with open(out_dir / "beta_vae_accuracies.json", "w") as f:
+        with open(out_dir / f"beta_vae_accuracies-{name}.json", "w") as f:
             json.dump(epoch_accs, f, indent=4)
 
     return evaluate()

@@ -14,13 +14,15 @@ def evaluate_factor_vae_score(
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     result: evaluation.Result,
+    param: tuple[str, float] = ("", 0.0),
 ) -> None:
-    score = factor_vae_score(model, dataset)
-    result.add_metric("factor_vae_score", score)
+    score = factor_vae_score(f"{param[0]}={param[1]}", model, dataset)
+    result.add_parameterized_metric(*param, "factor_vae_score", score)
 
 
 @torch.no_grad()
 def factor_vae_score(
+    name: str,
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     n_train: int = 800,
@@ -28,7 +30,7 @@ def factor_vae_score(
     sample_size: int = 100,
     n_normalizer_data: int = 65536,
 ) -> float:
-    _logger.info("computing FactorVAE score...")
+    _logger.info(f"computing FactorVAE score [{name}]...")
     model.eval()
     n_factors = dataset.n_factors
     n_latents = model.spec.size

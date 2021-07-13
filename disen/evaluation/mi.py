@@ -1,12 +1,11 @@
 import dataclasses
-import itertools
 import logging
 import pathlib
-from typing import Any, Callable, Sequence
+from typing import Any, Callable
 
 import torch
 
-from .. import attack, data, evaluation
+from .. import data, evaluation
 from ..models import lvm
 
 
@@ -18,57 +17,54 @@ _logger = logging.getLogger(__name__)
 class MIMetrics:
     mi_zi_yj: torch.Tensor
     mi_zmi_yj: torch.Tensor
+    mi_z_yj: torch.Tensor
     mig: float  # mutual information gap
-    uig: float  # unique information gap
-    ltig: float  # latent traversal information gap
+    ub: float  # unibound
+    lti: float  # latent traversal information
 
     def save(self, path: pathlib.Path) -> None:
         with open(path, "w") as f:
             f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
             f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
+            f.write(f"mi_z_yj=\n{self.mi_z_yj}\n")
             f.write(f"mig={self.mig}\n")
-            f.write(f"uig={self.uig}\n")
-            f.write(f"ltig={self.ltig}\n")
+            f.write(f"ub={self.ub}\n")
+            f.write(f"lti={self.lti}\n")
 
     def set_metrics(
         self, result: evaluation.Result, param_name: str, param_value: float
     ) -> None:
         result.add_parameterized_metric(param_name, param_value, "mig", self.mig)
-        result.add_parameterized_metric(param_name, param_value, "uig", self.uig)
-        result.add_parameterized_metric(param_name, param_value, "ltig", self.ltig)
+        result.add_parameterized_metric(param_name, param_value, "ub", self.ub)
+        result.add_parameterized_metric(param_name, param_value, "lti", self.lti)
 
 
-def evaluate_mi_metrics_with_attacks(
-    name: str,
-    dataset: data.DatasetWithFactors,
+def evaluate_mi_metrics(
     model: lvm.LatentVariableModel,
+    dataset: data.DatasetWithFactors,
     result: evaluation.Result,
     out_dir: pathlib.Path,
-    alpha: Sequence[float] = (),
+    param: tuple[str, float] = ("", 0.0),
 ) -> None:
-    D = model.spec.real_components_size
-    U = (torch.eye(D) - 2 / D).to(model.device)
-
-    for a in itertools.chain([0.0], alpha):
-        _logger.info(f"evaluating {name} [alpha={a}]...")
-        target = model if a == 0.0 else attack.RedundancyAttack(model, a, U)
-        mi_metrics = evaluate_mi_metrics(dataset, target)
-        mi_metrics.save(out_dir / f"mi_metrics-{name}-alpha={a}.txt")
-        mi_metrics.set_metrics(result, "alpha", a)
+    _logger.info(f"evaluating MI metrics [{param[0]}={param[1]}]...")
+    mi = mi_metrics(model, dataset)
+    mi.save(out_dir / f"mi_metrics-{param[0]}={param[1]}.txt")
+    mi.set_metrics(result, *param)
 
 
 @torch.no_grad()
-def evaluate_mi_metrics(
-    dataset: data.DatasetWithFactors,
+def mi_metrics(
     model: lvm.LatentVariableModel,
+    dataset: data.DatasetWithFactors,
 ) -> MIMetrics:
     ent_yj = dataset.factor_entropies()
     mi_zi_yj = _compute_mi_zi_yj(dataset, model.aggregated_entropy).cpu() / ent_yj
     mi_zmi_yj = _compute_mi_zi_yj(dataset, model.aggregated_loo_entropy).cpu() / ent_yj
+    mi_z_yj = _compute_mi_zi_yj(dataset, model.aggregated_joint_entropy).cpu() / ent_yj
     mig = _gap(mi_zi_yj, 0).mean().item()
-    uig = (mi_zi_yj - mi_zmi_yj).amax(0).mean().item()
-    ltig = _gap(mi_zmi_yj, 0, largest=False).mean().item()
-    return MIMetrics(mi_zi_yj, mi_zmi_yj, mig, uig, ltig)
+    ub = (mi_zi_yj - mi_zmi_yj).amax(0).mean().item()
+    lti = (mi_z_yj - mi_zmi_yj).amax(0).mean().item()
+    return MIMetrics(mi_zi_yj, mi_zmi_yj, mi_z_yj, mig, ub, lti)
 
 
 def _compute_mi_zi_yj(
