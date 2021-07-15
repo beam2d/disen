@@ -1,3 +1,4 @@
+from .discriminator import Discriminator
 from .latent_spec import LatentSpec, SingleLatentSpec
 from .lvm import LatentVariableModel
 

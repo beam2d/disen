@@ -3,26 +3,12 @@ import torch.nn.functional as F
 
 from .. import distributions
 from .. import nn
-from . import vae
+from . import discriminator, vae
 
 
-class FactorVAEDiscriminator(torch.nn.Sequential):
+class FactorVAEDiscriminator(discriminator.Discriminator):
     def __init__(self, n_latents: int) -> None:
-        width = 1000
-        super().__init__(
-            torch.nn.Linear(n_latents, width),
-            torch.nn.LeakyReLU(0.2, True),
-            torch.nn.Linear(width, width),
-            torch.nn.LeakyReLU(0.2, True),
-            torch.nn.Linear(width, width),
-            torch.nn.LeakyReLU(0.2, True),
-            torch.nn.Linear(width, width),
-            torch.nn.LeakyReLU(0.2, True),
-            torch.nn.Linear(width, width),
-            torch.nn.LeakyReLU(0.2, True),
-            torch.nn.Linear(width, 1),
-        )
-        self.in_features = n_latents
+        super().__init__(n_latents, 1)
 
 
 class FactorVAE(vae.VAE):

@@ -28,8 +28,6 @@ def evaluate_model(
         evaluation.evaluate_beta_vae_score(
             target, dataset, result, out_dir, param=param
         )
-        evaluation.evaluate_mi_metrics(
-            target, dataset, result, out_dir, param=param
-        )
+        evaluation.evaluate_mi_metrics(target, dataset, result, out_dir, param=param)
 
     result.save(out_dir / "result.json")
