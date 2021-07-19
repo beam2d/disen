@@ -5,6 +5,7 @@ from typing import Optional
 import torch
 
 from .. import evaluation, models
+from . import history
 
 
 _logger = logging.getLogger(__name__)
@@ -20,8 +21,8 @@ def train_model(
     n_epochs: Optional[int] = None,
     n_iters: Optional[int] = None,
     num_workers: int = 1,
-) -> evaluation.Result:
-    result = evaluation.Result.new()
+) -> history.History:
+    h = history.History()
     iteration = 0
     epoch = 0
     assert n_epochs or n_iters
@@ -59,14 +60,14 @@ def train_model(
 
             entry = accum.mean()
             entry["iteration"] = iteration
-            result.add_epoch(entry)
+            h.add_epoch(entry)
 
-        result.plot_history(out_dir)
+        h.plot(out_dir)
 
         if n_epochs and epoch >= n_epochs:
             break
 
-    return result
+    return h
 
 
 def train_factor_vae(
@@ -82,8 +83,8 @@ def train_factor_vae(
     n_epochs: Optional[int] = None,
     n_iters: Optional[int] = None,
     num_workers: int = 1,
-) -> evaluation.Result:
-    result = evaluation.Result.new()
+) -> history.History:
+    h = history.History()
     iteration = 0
     epoch = 0
     assert n_epochs or n_iters
@@ -142,11 +143,11 @@ def train_factor_vae(
 
             entry = accum.mean()
             entry["iteration"] = iteration
-            result.add_epoch(entry)
+            h.add_epoch(entry)
 
-        result.plot_history(out_dir)
+        h.plot(out_dir)
 
         if n_epochs and epoch >= n_epochs:
             break
 
-    return result
+    return h

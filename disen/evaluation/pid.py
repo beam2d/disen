@@ -15,14 +15,13 @@ _logger = logging.getLogger(__name__)
 
 @torch.no_grad()
 def ri_zi_zmi_yj(
-    name: str,
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     out_dir: pathlib.Path,
 ) -> torch.Tensor:
     """Estimate [R(y_j; z_i, z_{-i})]_{ij}."""
 
-    DZ = _train_ratio_estimator(name, model, dataset, out_dir)
+    DZ = _train_ratio_estimator(model, dataset, out_dir)
     L0 = 10_000
     K = 32
     B0 = 16
@@ -78,12 +77,11 @@ def ri_zi_zmi_yj(
 
 
 def _train_ratio_estimator(
-    name: str,
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     out_dir: pathlib.Path,
 ) -> models.Discriminator:
-    _logger.info(f"start train density ratio estimator for PUI [{name}]...")
+    _logger.info("start train density ratio estimator for PUI...")
     m = model.spec.size
     B_each = 32
     B = B_each * (m + 1)
@@ -133,7 +131,7 @@ def _train_ratio_estimator(
         epoch_losses.append(d["loss"])
         _logger.info(f"[epoch={epoch + 1}/{n_epochs}] {d}")
 
-    with open(out_dir / f"ratio_estimator_accuracies-{name}.json", "w") as f:
+    with open(out_dir / "ratio_estimator_accuracies.json", "w") as f:
         json.dump({"acc": epoch_accs, "loss": epoch_losses}, f, indent=4)
 
     return clf

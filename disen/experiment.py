@@ -8,7 +8,7 @@ from typing import Literal, Optional
 import numpy
 import torch
 
-from . import data, evaluation, models, nn, training
+from . import attack, data, evaluation, models, nn, training
 
 
 TaskType = Literal["dSprites"]
@@ -74,20 +74,31 @@ class Experiment:
 
     def train(
         self, device: torch.device
-    ) -> tuple[models.LatentVariableModel, evaluation.Result]:
+    ) -> tuple[models.LatentVariableModel, training.History]:
         assert self.phase == "train"
         _init_seed(self.train_seed)
         model = self.make_model()
         exp_dir = self.get_dir()
 
         if self.task == "dSprites":
-            result = _train_model_for_dsprites(
+            history = _train_model_for_dsprites(
                 model, self.model, self.dataset_path, device, exp_dir
             )
         else:
             raise ValueError(f"unknown task type: {self.task}")
 
-        return model, result
+        return model, history
+
+    def evaluate(self, device: torch.device) -> evaluation.Entry:
+        assert self.phase == "eval"
+        assert self.eval_seed is not None
+        _init_seed(self.eval_seed)
+        model = self.make_model()
+        pt_path = self.get_model_path()
+        model.load_state_dict(torch.load(pt_path))
+        return _evaluate_model_for_dsprites(
+            model, self.dataset_path, device, self.alpha, self.get_dir()
+        )
 
     def _get_common_dir(self) -> pathlib.Path:
         out_dir = self.out_dir
@@ -98,9 +109,10 @@ class Experiment:
 
 
 def _init_seed(seed: int) -> None:
-    random.seed(seed)
-    numpy.random.seed(seed + 1)
-    torch.manual_seed(seed + 2)
+    seed *= 1_091
+    random.seed(seed + 12)
+    numpy.random.seed(seed + 12_345)
+    torch.manual_seed(seed + 12_345_678)
 
 
 def _make_model_for_dsprites(model: ModelType) -> models.LatentVariableModel:
@@ -166,7 +178,7 @@ def _train_model_for_dsprites(
     dataset_path: pathlib.Path,
     device: torch.device,
     out_dir: pathlib.Path,
-) -> evaluation.Result:
+) -> training.History:
     dataset = data.DSprites(dataset_path)
     model.to(device)
 
@@ -230,3 +242,32 @@ def _train_model_for_dsprites(
         )
 
     raise TypeError(f"unknown model type: {type(model)}")
+
+
+def _evaluate_model_for_dsprites(
+    model: models.LatentVariableModel,
+    dataset_path: pathlib.Path,
+    device: torch.device,
+    alpha: Optional[float],
+    out_dir: pathlib.Path,
+) -> evaluation.Entry:
+    dataset = data.DSprites(dataset_path)
+    entry = evaluation.Entry()
+    model.to(device)
+
+    alpha = alpha or 0.0
+    if alpha != 0.0:
+        D = model.spec.real_components_size
+        U = (torch.eye(D) - 2 / D).to(model.device)
+        model = attack.RedundancyAttack(model, alpha, U)
+
+    entry.add_score("factor_vae_score", evaluation.factor_vae_score(model, dataset))
+    entry.add_score(
+        "beta_vae_score",
+        evaluation.beta_vae_score(model, dataset, out_dir),
+    )
+    mi = evaluation.mi_metrics(model, dataset, out_dir)
+    mi.save(out_dir / "mi_metrics.txt")
+    mi.add_to_entry(entry)
+
+    return entry

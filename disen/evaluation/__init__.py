@@ -1,9 +1,8 @@
 from .batch_accumulator import BatchAccumulator
-from .result import Result, summarize_multiple_trials
+from .entry import Entry
 
-from .beta_vae import beta_vae_score, evaluate_beta_vae_score
-from .factor_vae import evaluate_factor_vae_score, factor_vae_score
+from .beta_vae import beta_vae_score
+from .factor_vae import factor_vae_score
 from .latent_traversal import render_latent_traversal
-from .mi import MIMetrics, evaluate_mi_metrics
+from .mi import MIMetrics, mi_metrics
 from .pid import ri_zi_zmi_yj
-from .routine import evaluate_model

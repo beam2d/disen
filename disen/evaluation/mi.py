@@ -24,6 +24,12 @@ class MIMetrics:
     lti: float  # latent traversal information
     pui: float  # path-based unique information
 
+    def add_to_entry(self, entry: evaluation.Entry) -> None:
+        entry.add_score("mig", self.mig)
+        entry.add_score("ub", self.ub)
+        entry.add_score("lti", self.lti)
+        entry.add_score("pui", self.pui)
+
     def save(self, path: pathlib.Path) -> None:
         with open(path, "w") as f:
             f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
@@ -35,45 +41,21 @@ class MIMetrics:
             f.write(f"lti={self.lti}\n")
             f.write(f"pui={self.pui}\n")
 
-    def set_metrics(
-        self, result: evaluation.Result, param_name: str, param_value: float
-    ) -> None:
-        result.add_parameterized_metric(param_name, param_value, "mig", self.mig)
-        result.add_parameterized_metric(param_name, param_value, "ub", self.ub)
-        result.add_parameterized_metric(param_name, param_value, "lti", self.lti)
-        result.add_parameterized_metric(param_name, param_value, "pui", self.pui)
-
-
-def evaluate_mi_metrics(
-    model: models.LatentVariableModel,
-    dataset: data.DatasetWithFactors,
-    result: evaluation.Result,
-    out_dir: pathlib.Path,
-    param: tuple[str, float] = ("", 0.0),
-) -> None:
-    name = f"{param[0]}={param[1]}"
-    _logger.info(f"evaluating MI metrics [{name}]...")
-    mi = mi_metrics(name, model, dataset, out_dir)
-    mi.save(out_dir / f"mi_metrics-{name}.txt")
-    mi.set_metrics(result, *param)
-    _logger.info(f"mi metrics [{name}]: mig={mi.mig} pui={mi.pui}")
-
 
 @torch.no_grad()
 def mi_metrics(
-    name: str,
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
     out_dir: pathlib.Path,
 ) -> MIMetrics:
     ent_yj = dataset.factor_entropies()
-    _logger.info(f"computing ri_zi_xmi_yj [{name}]...")
-    ri_zi_zmi_yj = pid.ri_zi_zmi_yj(name, model, dataset, out_dir).cpu() / ent_yj
-    _logger.info(f"computing mi_zi_yj [{name}]...")
+    _logger.info("computing ri_zi_xmi_yj...")
+    ri_zi_zmi_yj = pid.ri_zi_zmi_yj(model, dataset, out_dir).cpu() / ent_yj
+    _logger.info("computing mi_zi_yj...")
     mi_zi_yj = _compute_mi_zi_yj(dataset, model.aggregated_entropy).cpu() / ent_yj
-    _logger.info(f"computing mi_zmi_yj [{name}]...")
+    _logger.info("computing mi_zmi_yj...")
     mi_zmi_yj = _compute_mi_zi_yj(dataset, model.aggregated_loo_entropy).cpu() / ent_yj
-    _logger.info(f"computing mi_z_yj [{name}]...")
+    _logger.info("computing mi_z_yj...")
     mi_z_yj = _compute_mi_zi_yj(dataset, model.aggregated_joint_entropy).cpu() / ent_yj
     mig = _gap(mi_zi_yj, 0).mean().item()
     ub = (mi_zi_yj - mi_zmi_yj).amax(0).mean().item()
