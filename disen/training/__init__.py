@@ -1,1 +1,1 @@
-from .loop import train_model
+from .loop import train_factor_vae, train_model
