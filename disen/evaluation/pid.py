@@ -188,9 +188,11 @@ def _mix_repr(
                 zk2 = z0[:, None].expand_as(zk1).clone()
                 zk2[:, :, di] = zk1[:, :, di]
                 zk1[:, :, di] = z0[:, None, di]
+                zk1 = zk1.reshape(B, K, -1)
+                zk2 = zk2.reshape(B, K, -1)
             else:
                 zk1 = zk.reshape(B, K, -1)
-                zk2 = z0[:, None].expand_as(zk1)
+                zk2 = z0.reshape(B, 1, -1).expand_as(zk1)
             mixed1_i.append(zk1)
             mixed2_i.append(zk2)
             start = end
