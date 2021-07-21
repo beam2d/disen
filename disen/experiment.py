@@ -3,16 +3,17 @@ import json
 import pathlib
 import random
 import subprocess
-from typing import Literal, Optional
+from typing import Any, Callable, Iterator, Literal, Optional, TypeVar, cast
 
 import numpy
 import torch
 
-from . import attack, data, evaluation, models, nn, training
+from . import attack, data, evaluation, log_util, models, nn, training
 
 
 TaskType = Literal["dSprites"]
 ModelType = Literal["betaVAE", "CascadeVAE", "FactorVAE", "JointVAE", "TCVAE"]
+_T = TypeVar("_T")
 
 
 @dataclasses.dataclass
@@ -26,23 +27,12 @@ class Experiment:
     eval_seed: Optional[int] = None
     alpha: Optional[float] = None
 
-    def build_args(self) -> list[str]:
-        args = [
-            f"--out_dir={self.out_dir}",
-            f"--dataset_path={self.dataset_path}",
-            f"--task={self.task}",
-            f"--model={self.model}",
-            f"--train_seed={self.train_seed}",
-        ]
-        if self.phase == "eval":
-            assert self.eval_seed is not None
-            args.append(f"--eval_seed={self.eval_seed}")
-            if self.alpha is not None:
-                args.append(f"--alpha={self.alpha}")
-        return args
-
     def get_model_path(self) -> pathlib.Path:
         return self._get_common_dir() / "phase-train" / "model.pt"
+
+    def get_entry_path(self) -> pathlib.Path:
+        assert self.phase == "eval"
+        return self.get_dir() / "entry.json"
 
     def get_dir(self) -> pathlib.Path:
         out_dir = self._get_common_dir()
@@ -56,12 +46,70 @@ class Experiment:
     def get_job_dir(self) -> pathlib.Path:
         return self.get_dir() / "job"
 
-    def make_model(self) -> models.LatentVariableModel:
-        if self.task == "dSprites":
-            return _make_model_for_dsprites(self.model)
-        raise ValueError(f"unknown task type: {self.task}")
+    def train(self, device: torch.device) -> None:
+        assert self.phase == "train"
 
-    def save_run_info(self) -> None:
+        self._setup_exp_dir()
+        _init_seed(self.train_seed)
+        model = self._make_model()
+        exp_dir = self.get_dir()
+
+        if self.task == "dSprites":
+            history = _train_model_for_dsprites(
+                model, self.model, self.dataset_path, device, exp_dir
+            )
+        else:
+            raise ValueError(f"unknown task type: {self.task}")
+
+        torch.save(model.state_dict(), self.get_model_path())
+        history.save(exp_dir / "history.json")
+
+    def evaluate(self, device: torch.device) -> None:
+        assert self.phase == "eval"
+        assert self.eval_seed is not None
+
+        self._setup_exp_dir()
+        _init_seed(self.eval_seed)
+        model = self._make_model()
+        pt_path = self.get_model_path()
+        model.load_state_dict(torch.load(pt_path))
+        entry = _evaluate_model_for_dsprites(
+            model, self.dataset_path, device, self.alpha, self.get_dir()
+        )
+        with open(self.get_entry_path(), "w") as f:
+            json.save(entry, f, indent=4)
+
+    def load_entry(self) -> dict[str, float]:
+        with open(self.get_entry_path()) as f:
+            return json.load(f)
+
+    def load_entry_with_attrs(self) -> dict[str, Any]:
+        entry: dict[str, Any] = self.load_entry()
+        assert self.eval_seed is not None
+        assert self.alpha is not None
+        entry.update(
+            {
+                "task": self.task,
+                "model": self.model,
+                "train_seed": self.train_seed,
+                "eval_seed": self.eval_seed,
+                "alpha": self.alpha,
+            }
+        )
+        return entry
+
+    def _get_common_dir(self) -> pathlib.Path:
+        out_dir = self.out_dir
+        out_dir /= f"task-{self.task}"
+        out_dir /= f"model-{self.model}"
+        out_dir /= f"train_seed-{self.train_seed}"
+        return out_dir
+
+    def _setup_exp_dir(self) -> None:
+        exp_dir = self.get_dir()
+        exp_dir.mkdir(parents=True)
+        log_util.setup_logger(exp_dir)
+
         info_dir = self.get_dir() / "job"
         info_dir.mkdir()
 
@@ -72,40 +120,41 @@ class Experiment:
         with open(info_dir / "git.diff", "w") as f:
             subprocess.run(["git", "diff"], stdout=f)
 
-    def train(
-        self, device: torch.device
-    ) -> tuple[models.LatentVariableModel, training.History]:
-        assert self.phase == "train"
-        _init_seed(self.train_seed)
-        model = self.make_model()
-        exp_dir = self.get_dir()
-
+    def _make_model(self) -> models.LatentVariableModel:
         if self.task == "dSprites":
-            history = _train_model_for_dsprites(
-                model, self.model, self.dataset_path, device, exp_dir
-            )
-        else:
-            raise ValueError(f"unknown task type: {self.task}")
+            return _make_model_for_dsprites(self.model)
+        raise ValueError(f"unknown task type: {self.task}")
 
-        return model, history
 
-    def evaluate(self, device: torch.device) -> evaluation.Entry:
-        assert self.phase == "eval"
-        assert self.eval_seed is not None
-        _init_seed(self.eval_seed)
-        model = self.make_model()
-        pt_path = self.get_model_path()
-        model.load_state_dict(torch.load(pt_path))
-        return _evaluate_model_for_dsprites(
-            model, self.dataset_path, device, self.alpha, self.get_dir()
-        )
+def collect_experiments(
+    root: pathlib.Path,
+    task: TaskType,
+    dataset_path: pathlib.Path = pathlib.Path("."),
+) -> Iterator[Experiment]:
+    def dig(
+        d: pathlib.Path, attr: str, typ: Callable[[str], _T]
+    ) -> list[tuple[_T, pathlib.Path]]:
+        ret: list[tuple[_T, pathlib.Path]] = []
+        for l in d.iterdir():
+            kv = l.name.split("-")
+            if len(kv) == 2 and kv[0] == attr:
+                ret.append((typ(kv[1]), l))
+        return ret
 
-    def _get_common_dir(self) -> pathlib.Path:
-        out_dir = self.out_dir
-        out_dir /= f"task-{self.task}"
-        out_dir /= f"model-{self.model}"
-        out_dir /= f"train_seed-{self.train_seed}"
-        return out_dir
+    for model, d in dig(root / f"task-{task}", "model", str):
+        for train_seed, d in dig(d, "train_seed", int):
+            for eval_seed, d in dig(d / "phase-eval", "eval_seed", int):
+                for alpha, d in dig(d, "alpha", float):
+                    yield Experiment(
+                        root,
+                        dataset_path,
+                        task,
+                        cast(ModelType, model),
+                        train_seed,
+                        "eval",
+                        eval_seed,
+                        alpha,
+                    )
 
 
 def _init_seed(seed: int) -> None:
@@ -118,7 +167,7 @@ def _init_seed(seed: int) -> None:
 def _make_model_for_dsprites(model: ModelType) -> models.LatentVariableModel:
     image_size = 64
     dataset_size = 737_280
-    n_latents = 10
+    n_latents = 6
     n_categories = 3
     n_continuous = n_latents - 1
     n_latent_features = n_categories + n_continuous
@@ -250,9 +299,8 @@ def _evaluate_model_for_dsprites(
     device: torch.device,
     alpha: Optional[float],
     out_dir: pathlib.Path,
-) -> evaluation.Entry:
+) -> dict[str, float]:
     dataset = data.DSprites(dataset_path)
-    entry = evaluation.Entry()
     model.to(device)
 
     alpha = alpha or 0.0
@@ -261,13 +309,11 @@ def _evaluate_model_for_dsprites(
         U = (torch.eye(D) - 2 / D).to(model.device)
         model = attack.RedundancyAttack(model, alpha, U)
 
-    entry.add_score("factor_vae_score", evaluation.factor_vae_score(model, dataset))
-    entry.add_score(
-        "beta_vae_score",
-        evaluation.beta_vae_score(model, dataset, out_dir),
-    )
+    entry: dict[str, float] = {}
+    entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)
+    entry["beta_vae_score"] = evaluation.beta_vae_score(model, dataset, out_dir)
     mi = evaluation.mi_metrics(model, dataset, out_dir)
     mi.save(out_dir / "mi_metrics.txt")
-    mi.add_to_entry(entry)
+    entry.update(mi.get_scores())
 
     return entry

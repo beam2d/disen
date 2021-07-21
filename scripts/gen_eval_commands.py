@@ -12,24 +12,21 @@ def gen_eval_commands(
     alphas: Sequence[float],
     out: str,
 ) -> None:
-    def gen(model: str, train_seed: int, eval_seed: int, alpha: float) -> None:
-        print(
-            "python3",
-            "scripts/eval.py",
-            f"--out_dir={out}",
-            f"--dataset_path={dataset_path}",
-            f"--task={task}",
-            f"--model={model}",
-            f"--train_seed={train_seed}",
-            f"--eval_seed={eval_seed}",
-            f"--alpha={alpha}",
-        )
-
     for model in models:
         for train_seed in train_seeds:
             for eval_seed in eval_seeds:
                 for alpha in alphas:
-                    gen(model, train_seed, eval_seed, alpha)
+                    print(
+                        "python3",
+                        "scripts/eval.py",
+                        f"--out_dir={out}",
+                        f"--dataset_path={dataset_path}",
+                        f"--task={task}",
+                        f"--model={model}",
+                        f"--train_seed={train_seed}",
+                        f"--eval_seed={eval_seed}",
+                        f"--alpha={alpha}",
+                    )
 
 
 def main() -> None:

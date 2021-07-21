@@ -6,16 +6,6 @@ import torch
 import disen
 
 
-def evaluate(experiment: disen.Experiment, device: torch.device) -> None:
-    exp_dir = experiment.get_dir()
-    exp_dir.mkdir(parents=True)
-    disen.setup_logger(exp_dir)
-
-    experiment.save_run_info()
-    entry = experiment.evaluate(device)
-    entry.save(exp_dir / "entry.json")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_dir", required=True)
@@ -38,7 +28,7 @@ def main() -> None:
         eval_seed=args.eval_seed,
         alpha=args.alpha,
     )
-    evaluate(experiment, torch.device(args.device))
+    experiment.evaluate(torch.device(args.device))
 
 
 if __name__ == "__main__":

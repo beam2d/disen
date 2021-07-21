@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 import torch
 
-from .. import data, evaluation, models
+from .. import data, models
 from . import pid
 
 
@@ -24,11 +24,13 @@ class MIMetrics:
     lti: float  # latent traversal information
     pui: float  # path-based unique information
 
-    def add_to_entry(self, entry: evaluation.Entry) -> None:
-        entry.add_score("mig", self.mig)
-        entry.add_score("ub", self.ub)
-        entry.add_score("lti", self.lti)
-        entry.add_score("pui", self.pui)
+    def get_scores(self) -> dict[str, float]:
+        return {
+            "mig": self.mig,
+            "ub": self.ub,
+            "lti": self.lti,
+            "pui": self.pui,
+        }
 
     def save(self, path: pathlib.Path) -> None:
         with open(path, "w") as f:
