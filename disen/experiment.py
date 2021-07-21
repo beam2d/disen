@@ -77,7 +77,7 @@ class Experiment:
             model, self.dataset_path, device, self.alpha, self.get_dir()
         )
         with open(self.get_entry_path(), "w") as f:
-            json.save(entry, f, indent=4)
+            json.dump(entry, f, indent=4)
 
     def load_entry(self) -> dict[str, float]:
         with open(self.get_entry_path()) as f:
