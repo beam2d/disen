@@ -6,5 +6,6 @@ from .util import (
     gini_variance,
     offdiagonal,
     principal_submatrices,
+    shuffle,
     tensor_sum,
 )

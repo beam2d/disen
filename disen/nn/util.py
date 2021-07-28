@@ -16,7 +16,7 @@ def enumerate_loo(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """
     n = x.shape[dim]
     dim %= x.ndim
-    return offdiagonal(torch.stack([x] * n), 0, dim + 1)
+    return offdiagonal(x.expand(n, *x.shape), 0, dim + 1)
 
 
 def gini_variance(x: torch.Tensor, n_categories: int, dim: int = -1) -> torch.Tensor:
@@ -65,6 +65,13 @@ def principal_submatrices(
     x = offdiagonal(x, 0, dim1)
     x = offdiagonal(x, 0, dim2)
     return x
+
+
+def shuffle(x: torch.Tensor, dim: int) -> torch.Tensor:
+    x = x.movedim(dim, -1)
+    perm = torch.randperm(x.shape[-1], device=x.device)
+    x = x[..., perm]
+    return x.movedim(-1, dim)
 
 
 def tensor_sum(xs: Iterable[torch.Tensor]) -> torch.Tensor:

@@ -24,8 +24,8 @@ class NoiseModel(disen.models.LatentVariableModel):
 
     def encode(self, x: torch.Tensor) -> list[disen.distributions.Distribution]:
         return [
-            disen.distributions.Normal(x[..., :self.std1.shape[1]], self.std1),
-            disen.distributions.Normal(x[..., self.std1.shape[1]:], self.std2),
+            disen.distributions.Normal(x[..., : self.std1.shape[1]], self.std1),
+            disen.distributions.Normal(x[..., self.std1.shape[1] :], self.std2),
         ]
 
 
@@ -87,10 +87,24 @@ def test_log_loo_posterior(
     torch.testing.assert_allclose(log_q_loo, expect)
 
 
+def test_log_joint_posterior(
+    model: NoiseModel, x: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor
+) -> None:
+    log_q_joint = model.log_joint_posterior(x, [z1, z2])
+
+    d1 = torch.distributions.Normal(x[:, :3], model.std1)
+    d2 = torch.distributions.Normal(x[:, 3:], model.std2)
+    log_q1 = d1.log_prob(z1).sum(1, keepdim=True)
+    log_q2 = d2.log_prob(z2).sum(1, keepdim=True)
+    expect = log_q1 + log_q2
+
+    torch.testing.assert_allclose(log_q_joint, expect)
+
+
 def test_aggregated_entropy(model: NoiseModel) -> None:
     N = 1000
     dataset = torch.utils.data.TensorDataset(torch.randn(N, 6))
-    H = model.aggregated_entropy(dataset, N, N, N)
+    H = model.aggregated_entropy(dataset, dataset, N, N)
 
     var1 = model.std1[0].square() + 1.0
     var2 = model.std2[0].square() + 1.0
@@ -103,7 +117,7 @@ def test_aggregated_entropy(model: NoiseModel) -> None:
 def test_aggregated_loo_entropy(model: NoiseModel) -> None:
     N = 1000
     dataset = torch.utils.data.TensorDataset(torch.randn(N, 6))
-    H = model.aggregated_loo_entropy(dataset, N, N, N)
+    H = model.aggregated_loo_entropy(dataset, dataset, N, N)
 
     var1 = model.std1[0].square() + 1.0
     var2 = model.std2[0].square() + 1.0
@@ -112,3 +126,17 @@ def test_aggregated_loo_entropy(model: NoiseModel) -> None:
     loo_entropy = entropy.sum() - entropy
 
     torch.testing.assert_allclose(H, loo_entropy, atol=0.05, rtol=0.01)
+
+
+def test_aggregated_joint_entropy(model: NoiseModel) -> None:
+    N = 1000
+    N = 1000
+    dataset = torch.utils.data.TensorDataset(torch.randn(N, 6))
+    H = model.aggregated_joint_entropy(dataset, dataset, N, N)
+
+    var1 = model.std1[0].square() + 1.0
+    var2 = model.std2[0].square() + 1.0
+    var = torch.cat([var1, var2])
+    entropy = (2 * math.pi * math.e * var).log().sum(0, keepdim=True) / 2
+
+    torch.testing.assert_allclose(H, entropy, atol=0.05, rtol=0.01)

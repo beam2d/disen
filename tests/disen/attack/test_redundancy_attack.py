@@ -80,7 +80,7 @@ def test_redundancy_attack_aggregated_entropy(
     B: int,
 ) -> None:
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = model.aggregated_entropy(dataset, N, B, B)
+    H = model.aggregated_entropy(dataset, dataset, B, B)
 
     expect = _normal_entropy(cov.diag())
 
@@ -95,7 +95,7 @@ def test_redundancy_attack_aggregated_loo_entropy(
     B: int,
 ) -> None:
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = model.aggregated_loo_entropy(dataset, N, B, B)
+    H = model.aggregated_loo_entropy(dataset, dataset, B, B)
 
     logdetcov = disen.nn.principal_submatrices(cov).logdet()
     expect = ((2 * D - 1) * math.log(2 * math.pi * math.e) + logdetcov) / 2
@@ -156,7 +156,7 @@ def test_redundancy_attack_aggregated_entropy_mixed(
     B: int,
 ) -> None:
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = mixed_model.aggregated_entropy(dataset, N, B, B)
+    H = mixed_model.aggregated_entropy(dataset, dataset, B, B)
 
     cate_expect = _categorical_entropy(mixed_model.base.logits)
     real_expect = _normal_entropy(cov.diag())
@@ -173,7 +173,7 @@ def test_redundancy_attack_aggregated_loo_entropy_mixed(
     B: int,
 ) -> None:
     dataset = torch.utils.data.TensorDataset(torch.randn(N, D))
-    H = mixed_model.aggregated_loo_entropy(dataset, N, B, B)
+    H = mixed_model.aggregated_loo_entropy(dataset, dataset, B, B)
 
     log2pie = math.log(2 * math.pi) + 1
 

@@ -16,7 +16,6 @@ _logger = logging.getLogger(__name__)
 def beta_vae_score(
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
-    out_dir: Optional[pathlib.Path] = None,
     sample_size: int = 200,
     eval_size: int = 800,
     batch_size: int = 10,
@@ -43,25 +42,12 @@ def beta_vae_score(
         z_diffs = torch.cat([_l1_diff(z[:, :, 0], z[:, :, 1]) for z in zs], -1)
         return z_diffs.mean(1)
 
-    def evaluate() -> float:
-        test_set = data.DatasetWithCommonFactor(dataset, sample_size, 2, eval_size)
-        test_loader = torch.utils.data.DataLoader(
-            test_set, batch_size=batch_size, num_workers=1
-        )
-        n_pos = 0
-        for x, t in test_loader:
-            z_diff_mean = embed_sample(x.to(device))
-            y = classifier(z_diff_mean)
-            n_pos += (y.argmax(1).cpu() == t).sum().item()
-        return n_pos / eval_size
-
-    epoch_accs: list[float] = []
-    epoch_size = (n_iters - 1) // 10 + 1
+    epoch_size = n_iters // 10
+    epoch = 0
+    loss_accum = 0.0
+    count = 0
 
     for i, (x, t) in enumerate(train_loader):
-        if i % epoch_size == 0:
-            epoch_accs.append(evaluate())
-
         z_diff_mean = embed_sample(x.to(device))
         with torch.enable_grad():
             classifier.zero_grad(set_to_none=True)
@@ -70,11 +56,28 @@ def beta_vae_score(
             loss.backward()
             optimizer.step()
 
-    if out_dir is not None:
-        with open(out_dir / "beta_vae_accuracies.json", "w") as f:
-            json.dump(epoch_accs, f, indent=4)
+            loss_accum += loss.item() * x.shape[0]
+            count += x.shape[0]
 
-    return evaluate()
+        if (i + 1) % epoch_size == 0:
+            epoch += 1
+            _logger.info(f"=== {epoch}/10  loss={loss_accum / count}")
+            loss_accum = 0.0
+            count = 0
+
+    test_set = data.DatasetWithCommonFactor(dataset, sample_size, 2, eval_size)
+    test_loader = torch.utils.data.DataLoader(
+        test_set, batch_size=batch_size, num_workers=1
+    )
+    n_pos = 0
+    for x, t in test_loader:
+        z_diff_mean = embed_sample(x.to(device))
+        y = classifier(z_diff_mean)
+        n_pos += (y.argmax(1).cpu() == t).sum().item()
+
+    score = n_pos / eval_size
+    _logger.info(f"beta vae score = {score}")
+    return score
 
 
 def _l1_diff(z1: torch.Tensor, z2: torch.Tensor) -> torch.Tensor:

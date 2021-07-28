@@ -3,7 +3,7 @@ from typing import Any, Callable, Sequence
 
 import torch
 
-from .. import data, distributions
+from .. import distributions, nn
 from . import latent_spec
 
 
@@ -63,7 +63,7 @@ class LatentVariableModel(torch.nn.Module):
         It computes [log q(z_{-i}|x)]_i.
         """
         log_q = self.log_posterior(x, zs)
-        return log_q.sum(-1, keepdim=True) - log_q
+        return nn.enumerate_loo(log_q, -1).sum(-1).movedim(0, -1)
 
     def log_joint_posterior(
         self, x: torch.Tensor, zs: Sequence[torch.Tensor]
@@ -140,8 +140,8 @@ class LatentVariableModel(torch.nn.Module):
 
     def aggregated_entropy(
         self,
-        dataset: torch.utils.data.Dataset[Any],
-        sample_size: int,
+        inner_dataset: torch.utils.data.Dataset[Any],
+        outer_dataset: torch.utils.data.Dataset[Any],
         inner_batch_size: int,
         outer_batch_size: int,
     ) -> torch.Tensor:
@@ -152,8 +152,8 @@ class LatentVariableModel(torch.nn.Module):
         Monte-Carlo sampling with the given sample size.
         """
         return self._aggregated_entropy(
-            dataset,
-            sample_size,
+            inner_dataset,
+            outer_dataset,
             inner_batch_size,
             outer_batch_size,
             self.log_posterior,
@@ -161,8 +161,8 @@ class LatentVariableModel(torch.nn.Module):
 
     def aggregated_loo_entropy(
         self,
-        dataset: torch.utils.data.Dataset[Any],
-        sample_size: int,
+        inner_dataset: torch.utils.data.Dataset[Any],
+        outer_dataset: torch.utils.data.Dataset[Any],
         inner_batch_size: int,
         outer_batch_size: int,
     ) -> torch.Tensor:
@@ -171,8 +171,8 @@ class LatentVariableModel(torch.nn.Module):
         It computes H(z_{-i}) = E[-log E_x[q(z_{-i}|x)]].
         """
         return self._aggregated_entropy(
-            dataset,
-            sample_size,
+            inner_dataset,
+            outer_dataset,
             inner_batch_size,
             outer_batch_size,
             self.log_loo_posterior,
@@ -180,8 +180,8 @@ class LatentVariableModel(torch.nn.Module):
 
     def aggregated_joint_entropy(
         self,
-        dataset: torch.utils.data.Dataset[Any],
-        sample_size: int,
+        inner_dataset: torch.utils.data.Dataset[Any],
+        outer_dataset: torch.utils.data.Dataset[Any],
         inner_batch_size: int,
         outer_batch_size: int,
     ) -> torch.Tensor:
@@ -190,8 +190,8 @@ class LatentVariableModel(torch.nn.Module):
         It computes H(z) = E[-log E_x[q(z|x)]].
         """
         return self._aggregated_entropy(
-            dataset,
-            sample_size,
+            inner_dataset,
+            outer_dataset,
             inner_batch_size,
             outer_batch_size,
             self.log_joint_posterior,
@@ -199,15 +199,16 @@ class LatentVariableModel(torch.nn.Module):
 
     def _aggregated_entropy(
         self,
-        dataset: torch.utils.data.Dataset[Any],
-        sample_size: int,
+        inner_dataset: torch.utils.data.Dataset[Any],
+        outer_dataset: torch.utils.data.Dataset[Any],
         inner_batch_size: int,
         outer_batch_size: int,
         log_q: Callable[[torch.Tensor, Sequence[torch.Tensor]], torch.Tensor],
     ) -> torch.Tensor:
-        subset = data.subsample(dataset, sample_size)
-        zs = self._infer_aggregated(subset, outer_batch_size)
-        log_q_z = self._log_aggregated_posterior(dataset, inner_batch_size, zs, log_q)
+        zs = self._infer_aggregated(outer_dataset, outer_batch_size)
+        log_q_z = self._log_aggregated_posterior(
+            inner_dataset, inner_batch_size, zs, log_q
+        )
         return -log_q_z.mean(0)
 
     def _infer_aggregated(

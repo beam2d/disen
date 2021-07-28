@@ -79,6 +79,9 @@ class Experiment:
         with open(self.get_entry_path(), "w") as f:
             json.dump(entry, f, indent=4)
 
+    def has_entry(self) -> bool:
+        return self.get_entry_path().exists()
+
     def load_entry(self) -> dict[str, float]:
         with open(self.get_entry_path()) as f:
             return json.load(f)
@@ -135,6 +138,8 @@ def collect_experiments(
         d: pathlib.Path, attr: str, typ: Callable[[str], _T]
     ) -> list[tuple[_T, pathlib.Path]]:
         ret: list[tuple[_T, pathlib.Path]] = []
+        if not d.exists():
+            return ret
         for l in d.iterdir():
             kv = l.name.split("-")
             if len(kv) == 2 and kv[0] == attr:
@@ -216,7 +221,7 @@ def _make_model_for_dsprites(model: ModelType) -> models.LatentVariableModel:
     if model == "TCVAE":
         encoder = nn.SimpleConvNet(image_size, 1, 256)
         decoder = nn.SimpleTransposedConvNet(image_size, n_latents, 1)
-        return models.TCVAE(encoder, decoder, n_latents, dataset_size)
+        return models.TCVAE(encoder, decoder, n_latents, dataset_size, beta=6.0)
 
     raise ValueError(f"unknown model type: {model}")
 
@@ -310,10 +315,15 @@ def _evaluate_model_for_dsprites(
         model = attack.RedundancyAttack(model, alpha, U)
 
     entry: dict[str, float] = {}
-    entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)
-    entry["beta_vae_score"] = evaluation.beta_vae_score(model, dataset, out_dir)
-    mi = evaluation.mi_metrics(model, dataset, out_dir)
+
+    mi = evaluation.mi_metrics(model, dataset)
     mi.save(out_dir / "mi_metrics.txt")
     entry.update(mi.get_scores())
+
+    entry["ulbo"] = evaluation.unibound_lower(model, dataset)
+    entry["uubo"] = evaluation.unibound_upper(model, dataset)
+
+    entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)
+    entry["beta_vae_score"] = evaluation.beta_vae_score(model, dataset)
 
     return entry

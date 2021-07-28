@@ -69,3 +69,10 @@ def test_principal_submatrices() -> None:
         expect[i, :, i:, i:] = x[:, i + 1 :, i + 1 :]
 
     assert (expect == actual).all()
+
+
+def test_shuffle() -> None:
+    k, m, n = 3, 4, 5
+    x = torch.arange(k * m * n).reshape(k, m, n)
+    y = disen.nn.shuffle(x, -2)
+    assert (x == y.sort(-2)[0]).all()

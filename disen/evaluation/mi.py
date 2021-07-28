@@ -6,10 +6,12 @@ from typing import Any, Callable
 import torch
 
 from .. import data, models
-from . import pid
 
 
-EntropyFn = Callable[[torch.utils.data.Dataset[Any], int, int, int], torch.Tensor]
+EntropyFn = Callable[
+    [torch.utils.data.Dataset[Any], torch.utils.data.Dataset[Any], int, int],
+    torch.Tensor
+]
 _logger = logging.getLogger(__name__)
 
 
@@ -18,18 +20,17 @@ class MIMetrics:
     mi_zi_yj: torch.Tensor
     mi_zmi_yj: torch.Tensor
     mi_z_yj: torch.Tensor
-    ri_zi_zmi_yj: torch.Tensor
+    mi: float  # mutual information
     mig: float  # mutual information gap
-    ub: float  # unibound
-    lti: float  # latent traversal information
-    pui: float  # path-based unique information
+    ulbo_exact: float  # unibound (lower)
+    uubo_exact: float  # unibound (upper)
 
     def get_scores(self) -> dict[str, float]:
         return {
+            "mi": self.mi,
             "mig": self.mig,
-            "ub": self.ub,
-            "lti": self.lti,
-            "pui": self.pui,
+            "ulbo_exact": self.ulbo_exact,
+            "uubo_exact": self.uubo_exact,
         }
 
     def save(self, path: pathlib.Path) -> None:
@@ -37,33 +38,35 @@ class MIMetrics:
             f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
             f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
             f.write(f"mi_z_yj=\n{self.mi_z_yj}\n")
-            f.write(f"ri_zi_zmi_yj=\n{self.ri_zi_zmi_yj}\n")
+            # f.write(f"ri_zi_zmi_yj=\n{self.ri_zi_zmi_yj}\n")
+            f.write(f"mi={self.mi}\n")
             f.write(f"mig={self.mig}\n")
-            f.write(f"ub={self.ub}\n")
-            f.write(f"lti={self.lti}\n")
-            f.write(f"pui={self.pui}\n")
+            f.write(f"ulbo_exact={self.ulbo_exact}\n")
+            f.write(f"uubo_exact={self.uubo_exact}\n")
+            # f.write(f"pui={self.pui}\n")
 
 
 @torch.no_grad()
 def mi_metrics(
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
-    out_dir: pathlib.Path,
 ) -> MIMetrics:
     ent_yj = dataset.factor_entropies()
-    _logger.info("computing ri_zi_xmi_yj...")
-    ri_zi_zmi_yj = pid.ri_zi_zmi_yj(model, dataset, out_dir).cpu() / ent_yj
+
+    def normalize(s: torch.Tensor) -> torch.Tensor:
+        return (s.cpu() / ent_yj).clip(0, 1)
+
     _logger.info("computing mi_zi_yj...")
-    mi_zi_yj = _compute_mi_zi_yj(dataset, model.aggregated_entropy).cpu() / ent_yj
+    mi_zi_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_entropy))
     _logger.info("computing mi_zmi_yj...")
-    mi_zmi_yj = _compute_mi_zi_yj(dataset, model.aggregated_loo_entropy).cpu() / ent_yj
+    mi_zmi_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_loo_entropy))
     _logger.info("computing mi_z_yj...")
-    mi_z_yj = _compute_mi_zi_yj(dataset, model.aggregated_joint_entropy).cpu() / ent_yj
+    mi_z_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_joint_entropy))
+    mi = mi_zi_yj.amax(0).mean().item()
     mig = _gap(mi_zi_yj, 0).mean().item()
-    ub = (mi_zi_yj - mi_zmi_yj).amax(0).mean().item()
-    lti = (mi_z_yj - mi_zmi_yj).amax(0).mean().item()
-    pui = (mi_zi_yj - ri_zi_zmi_yj).amax(0).mean().item()
-    return MIMetrics(mi_zi_yj, mi_zmi_yj, mi_z_yj, ri_zi_zmi_yj, mig, ub, lti, pui)
+    ulbo = (mi_zi_yj - mi_zmi_yj).relu().amax(0).mean().item()
+    uubo = torch.minimum((mi_z_yj - mi_zmi_yj).relu(), mi_zi_yj).amax(0).mean().item()
+    return MIMetrics(mi_zi_yj, mi_zmi_yj, mi_z_yj, mi, mig, ulbo, uubo)
 
 
 def _compute_mi_zi_yj(
@@ -74,10 +77,21 @@ def _compute_mi_zi_yj(
 
     def ent(dataset: torch.utils.data.Dataset[Any], sample_size: int) -> torch.Tensor:
         sample_size = min(sample_size, data.dataset_size(dataset))
-        return entropy_fn(dataset, sample_size, inner_bsize, outer_bsize)
+        sample = data.subsample(dataset, sample_size)
+        if sample_size <= 10_000:
+            return entropy_fn(dataset, sample, inner_bsize, outer_bsize)
+
+        n_samples = (sample_size - 1) // 10_000 + 1
+        each_size = (sample_size - 1) // n_samples + 1
+        subsets = data.split(sample, each_size)
+        ents = [
+            entropy_fn(dataset, subset, inner_bsize, outer_bsize) * len(subset)
+            for subset in subsets
+        ]
+        return torch.stack(ents).sum(0) / sample_size
 
     # Compute H(z_i).
-    ent_zi = ent(dataset, 10_000)
+    ent_zi = ent(dataset, 100_000)
 
     # Compute H(z_i|y_j).
     # Note: we assume p(y_j) is a uniform distribution.
@@ -86,7 +100,7 @@ def _compute_mi_zi_yj(
         ent_zi_yj_points: list[torch.Tensor] = []
         for yj in range(dataset.n_factor_values[j]):
             subset = dataset.fix_factor(j, yj)
-            ent_zi_yj_point = ent(subset, 10_000)
+            ent_zi_yj_point = ent(subset, 100_000)
             ent_zi_yj_points.append(ent_zi_yj_point)
         ent_zi_yj_list.append(torch.stack(ent_zi_yj_points).mean(0))
     ent_zi_yj = torch.stack(ent_zi_yj_list, 1)

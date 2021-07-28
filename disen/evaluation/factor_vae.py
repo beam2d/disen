@@ -57,7 +57,9 @@ def factor_vae_score(
         i = embed_sample(x)
         n_pos += int((classifier[i] == j).sum())
 
-    return n_pos / n_test
+    score = n_pos / n_test
+    _logger.info(f"factor vae score = {score}")
+    return score
 
 
 def _compute_normalizer(
