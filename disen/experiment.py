@@ -316,9 +316,9 @@ def _evaluate_model_for_dsprites(
 
     entry: dict[str, float] = {}
 
-    # entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset)
-    # entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset)
-    entry.update(evaluation.estimate_unibound_in_many_ways(model, dataset, out_dir))
+    entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset)
+    entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset)
+    # entry.update(evaluation.estimate_unibound_in_many_ways(model, dataset, out_dir))
 
     entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)
     entry["beta_vae_score"] = evaluation.beta_vae_score(model, dataset)

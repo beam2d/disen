@@ -24,13 +24,8 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "mig",
             "unibound_l",
             "unibound_u",
-            # "unibound_l_dre",
-            # "unibound_u_dre",
-            "unibound_l_direct",
-            "unibound_l_mi",
-            "unibound_l_part",
-            "unibound_u_direct",
-            "unibound_u_mi",
+            "unibound_l_dre",
+            "unibound_u_dre",
         ],
         "metric",
         "score",
@@ -42,13 +37,8 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "mig": "MIG",
             "unibound_l": "UniBound-L",
             "unibound_u": "UniBound-U",
-            # "unibound_l_dre": "UniBound-L(DRE)",
-            # "unibound_u_dre": "UniBound-U(DRE)",
-            "unibound_l_direct": "UB-L(direct)",
-            "unibound_l_mi": "UB-L(MI)",
-            "unibound_l_part": "UB-L(part)",
-            "unibound_u_direct": "UB-U(direct)",
-            "unibound_u_mi": "UB-U(MI)"
+            "unibound_l_dre": "UniBound-L(DRE)",
+            "unibound_u_dre": "UniBound-U(DRE)",
         }
     )
     df_clean = df.loc[df["alpha"] == 0.0]
@@ -62,14 +52,9 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         "FactorVAE",
         "MIG",
         "UniBound-L",
-        # "UniBound-L(DRE)",
-        "UB-L(direct)",
-        "UB-L(MI)",
-        "UB-L(part)",
+        "UniBound-L(DRE)",
         "UniBound-U",
-        # "UniBound-U(DRE)",
-        "UB-U(direct)",
-        "UB-U(MI)",
+        "UniBound-U(DRE)",
     ]
     model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE", "CascadeVAE"]
 
