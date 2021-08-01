@@ -316,14 +316,16 @@ def _evaluate_model_for_dsprites(
 
     entry: dict[str, float] = {}
 
-    mi = evaluation.mi_metrics(model, dataset)
-    mi.save(out_dir / "mi_metrics.txt")
-    entry.update(mi.get_scores())
-
-    entry["ulbo"] = evaluation.unibound_lower(model, dataset)
-    entry["uubo"] = evaluation.unibound_upper(model, dataset)
+    # entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset)
+    # entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset)
+    entry.update(evaluation.estimate_unibound_in_many_ways(model, dataset, out_dir))
 
     entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)
     entry["beta_vae_score"] = evaluation.beta_vae_score(model, dataset)
+
+    if model.has_valid_elemwise_posterior:
+        mi = evaluation.mi_metrics(model, dataset)
+        mi.save(out_dir / "mi_metrics.txt")
+        entry.update(mi.get_scores())
 
     return entry

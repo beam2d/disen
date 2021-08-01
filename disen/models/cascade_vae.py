@@ -47,6 +47,10 @@ class CascadeVAE(lvm.LatentVariableModel):
         self.warmup_iteration = warmup_iteration
         self.iteration = 0
 
+    @property
+    def has_valid_elemwise_posterior(self) -> bool:
+        return False
+
     def encode(self, x: torch.Tensor) -> list[distributions.Distribution]:
         z = self._infer_z(x)
         probs = self._infer_c(x, z.sample())

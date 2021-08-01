@@ -17,6 +17,10 @@ class LatentVariableModel(torch.nn.Module):
             return param.device
         return torch.device("cpu")
 
+    @property
+    def has_valid_elemwise_posterior(self) -> bool:
+        return True
+
     def encode(self, x: torch.Tensor) -> list[distributions.Distribution]:
         """Compute the posterior distribution q(z|x) with given x.
 
@@ -51,6 +55,7 @@ class LatentVariableModel(torch.nn.Module):
         
         It computes [log q(z_i|x)]_i.
         """
+        assert self.has_valid_elemwise_posterior
         q_zs = self.encode(x)
         log_q_zs = [q_z.log_prob(z) for z, q_z in zip(zs, q_zs)]
         return torch.cat(log_q_zs, -1)
@@ -62,6 +67,7 @@ class LatentVariableModel(torch.nn.Module):
 
         It computes [log q(z_{-i}|x)]_i.
         """
+        assert self.has_valid_elemwise_posterior
         log_q = self.log_posterior(x, zs)
         return nn.enumerate_loo(log_q, -1).sum(-1).movedim(0, -1)
 

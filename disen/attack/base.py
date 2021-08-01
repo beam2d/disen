@@ -16,6 +16,10 @@ class Attack(models.LatentVariableModel, Generic[_BaseModel]):
         self.base = base
         self.spec = base.spec
 
+    @property
+    def has_valid_elemwise_posterior(self) -> bool:
+        return self.base.has_valid_elemwise_posterior
+
     def inject_noise(
         self, zs: Sequence[distributions.Distribution]
     ) -> list[distributions.Distribution]:
