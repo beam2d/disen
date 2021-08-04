@@ -58,7 +58,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     ]
     model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE", "CascadeVAE"]
 
-    seaborn.set_style("darkgrid")
+    seaborn.set("paper", "darkgrid", "muted")
 
     task_dir = root / f"task-{task}"
 
@@ -74,34 +74,18 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     )
     _render_and_close(fg, task_dir / "model_metric.png")
 
-    fg = seaborn.catplot(
-        kind="box",
-        x="metric",
-        order=metric_order,
-        y="score",
-        hue="train_seed",
-        legend=False,
-        col="model",
-        col_order=["βVAE", "CascadeVAE"],
-        aspect=2.0,
-        data=df_clean,
-    )
-    _render_and_close(fg, task_dir / "eval_deviation.png")
-
-    fg = seaborn.catplot(
-        kind="box",
-        x="metric",
-        order=metric_order,
-        y="score",
-        hue="train_seed",
-        legend=False,
-        col="model",
-        col_order=model_order,
-        col_wrap=3,
-        aspect=2.0,
-        data=df_clean,
-    )
-    _render_and_close(fg, task_dir / "eval_deviation_all.png")
+    for model in model_order:
+        fg = seaborn.catplot(
+            kind="box",
+            x="metric",
+            order=metric_order,
+            y="score",
+            hue="train_seed",
+            legend=False,
+            aspect=2.0,
+            data=df_clean.loc[df_clean["model"] == model],
+        )
+        _render_and_close(fg, task_dir / f"eval_deviation-{model}.png")
 
     fg = seaborn.relplot(
         kind="line",
@@ -113,7 +97,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         col_order=["TCVAE", "CascadeVAE"],
         data=df_attack,
     )
-    _render_and_close(fg, task_dir / "attacked.png")
+    _render_and_close(fg, task_dir / f"attacked.png")
 
 
 def _render_and_close(fg: seaborn.FacetGrid, path: pathlib.Path) -> None:

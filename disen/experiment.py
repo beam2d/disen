@@ -72,7 +72,7 @@ class Experiment:
         _init_seed(self.eval_seed)
         model = self._make_model()
         pt_path = self.get_model_path()
-        model.load_state_dict(torch.load(pt_path))
+        model.load_state_dict(torch.load(pt_path, map_location="cpu"))
         entry = _evaluate_model_for_dsprites(
             model, self.dataset_path, device, self.alpha, self.get_dir()
         )
@@ -316,8 +316,8 @@ def _evaluate_model_for_dsprites(
 
     entry: dict[str, float] = {}
 
-    entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset)
-    entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset)
+    entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset, out_dir)
+    entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset, out_dir)
     # entry.update(evaluation.estimate_unibound_in_many_ways(model, dataset, out_dir))
 
     entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)

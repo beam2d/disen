@@ -1,5 +1,4 @@
 from __future__ import annotations
-from disen.models.discriminator import Discriminator
 import logging
 import pathlib
 from typing import Literal, Optional, Sequence
@@ -7,7 +6,7 @@ from typing import Literal, Optional, Sequence
 import torch
 import torch.nn.functional as F
 
-from .. import data, log_util, models
+from .. import data, log_util, models, nn
 
 
 _logger = logging.getLogger(__name__)
@@ -31,7 +30,8 @@ class SingleClassifier(torch.nn.Module):
         self.n_in_y = n_factor_categories
         self.n_in_L = n_in_L
         self.n_in_R = n_in_R
-        self.mlp = Discriminator(n_in, 1, width, depth)
+        self.mlp = nn.MLP(n_in, 1, width, depth)
+        # self.mlp = nn.DenseNet(n_in, 1, width, depth)
 
         self.indices_L: torch.Tensor
         self.register_buffer("indices_L", left_indices.nonzero()[:, 0])
@@ -160,7 +160,9 @@ def estimate_mi_difference(
     ]
     optimizer: torch.optim.Optimizer
     if weight_decay > 0.0:
-        optimizer = torch.optim.AdamW(clf.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = torch.optim.AdamW(
+            clf.parameters(), lr=lr, weight_decay=weight_decay
+        )
     else:
         optimizer = torch.optim.Adam(clf.parameters(), lr=lr)
 
@@ -206,34 +208,47 @@ def estimate_mi_difference(
 
 
 def unibound_lower(
-    model: models.LatentVariableModel, dataset: data.DatasetWithFactors
+    model: models.LatentVariableModel,
+    dataset: data.DatasetWithFactors,
+    out_dir: pathlib.Path,
 ) -> float:
     m = model.spec.size
     zi = torch.eye(m)
-    zmi = torch.ones_like(zi) - zi
-    ent_j = torch.as_tensor(dataset.n_factor_values).log()
-    ub_l = _normalize(
-        estimate_mi_difference("MIdiff", model, dataset, zi, zmi), ent_j
-    ).amax(0).mean().item()
+    z = torch.ones_like(zi)
+    ent_j = dataset.factor_entropies()
+    ub_l_ij = (
+        estimate_mi_difference("MIdiff", model, dataset, zi, z - zi).cpu() / ent_j
+    )
+    ub_l = ub_l_ij.clip(0, 1).amax(0).mean().item()
+
+    with open(out_dir / "dre_metrics.txt", "a") as f:
+        f.write(f"unibound_l_ij =\n{ub_l_ij}\n")
+        f.write(f"unibound_l = {ub_l}\n")
+
     _logger.info(f"unibound_l_dre = {ub_l}")
     return ub_l
 
 
 def unibound_upper(
-    model: models.LatentVariableModel, dataset: data.DatasetWithFactors
+    model: models.LatentVariableModel,
+    dataset: data.DatasetWithFactors,
+    out_dir: pathlib.Path,
 ) -> float:
     m = model.spec.size
     zi = torch.eye(m)
-    zmi = torch.ones_like(zi) - zi
-    z = torch.ones((1, m))
-    ent_j = torch.as_tensor(dataset.n_factor_values).log()
-    score_ij = _normalize(
-        estimate_mi_difference("MIdiff", model, dataset, z, zmi), ent_j
+    z = torch.ones_like(zi)
+    ent_j = dataset.factor_entropies()
+    score_ij = (
+        estimate_mi_difference("MIdiff", model, dataset, z, z - zi).cpu() / ent_j
     )
-    mi_ij = _normalize(
-        estimate_mi_difference("MI", model, dataset, zi), ent_j
-    )
-    ub_u = torch.minimum(score_ij, mi_ij).amax(0).mean().item()
+    mi_ij = estimate_mi_difference("MI", model, dataset, zi).cpu() / ent_j
+    ub_u = torch.minimum(score_ij, mi_ij).clip(0, 1).amax(0).mean().item()
+
+    with open(out_dir / "dre_metrics.txt", "a") as f:
+        f.write(f"unibound_u_ij =\n{score_ij}\n")
+        f.write(f"mi_zi_yj =\n{mi_ij}\n")
+        f.write(f"unibound_u = {ub_u}\n")
+
     _logger.info(f"unibound_u_dre = {ub_u}")
     return ub_u
 
