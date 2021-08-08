@@ -39,12 +39,10 @@ class MIMetrics:
                 f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
                 f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
                 f.write(f"mi_z_yj=\n{self.mi_z_yj}\n")
-                # f.write(f"ri_zi_zmi_yj=\n{self.ri_zi_zmi_yj}\n")
                 f.write(f"mi={self.mi}\n")
                 f.write(f"mig={self.mig}\n")
                 f.write(f"unibound_l={self.unibound_l}\n")
                 f.write(f"unibound_u={self.unibound_u}\n")
-                # f.write(f"pui={self.pui}\n")
 
 
 @torch.no_grad()

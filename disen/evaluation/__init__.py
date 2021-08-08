@@ -10,3 +10,4 @@ from .factor_vae import factor_vae_score
 from .latent_traversal import render_latent_traversal
 from .mi import MIMetrics, mi_metrics
 from .pid import ri_zi_zmi_yj
+from .vmi import VariationalMIMetrics, variational_mi_metrics

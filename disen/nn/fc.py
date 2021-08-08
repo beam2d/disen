@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 
 
 class FCBase(torch.nn.Module):
@@ -32,13 +31,16 @@ class MLP(FCBase):
 
 
 class DenseNet(FCBase):
-    def __init__(self, n_in: int, n_out: int, width: int = 200, depth: int = 6) -> None:
+    def __init__(
+        self, n_in: int, n_out: int, width: int = 200, depth: int = 6
+    ) -> None:
         super().__init__()
         assert depth >= 2
+
         layers: list[torch.nn.Module] = []
         for i in range(depth - 1):
             fc = torch.nn.Linear(n_in + i * width, width)
-            act = torch.nn.SiLU()
+            act = torch.nn.ReLU()
             layers.append(torch.nn.Sequential(fc, act))
         self.mid_layers = torch.nn.ModuleList(layers)
         self.out_layer = torch.nn.Linear(n_in + (depth - 1) * width, n_out)

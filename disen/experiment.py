@@ -316,9 +316,12 @@ def _evaluate_model_for_dsprites(
 
     entry: dict[str, float] = {}
 
-    entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset, out_dir)
-    entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset, out_dir)
+    # entry["unibound_l_dre"] = evaluation.unibound_lower(model, dataset, out_dir)
+    # entry["unibound_u_dre"] = evaluation.unibound_upper(model, dataset, out_dir)
     # entry.update(evaluation.estimate_unibound_in_many_ways(model, dataset, out_dir))
+    vmi = evaluation.variational_mi_metrics(model, dataset)
+    vmi.save(out_dir / "vmi_metrics.txt")
+    entry.update(vmi.get_scores())
 
     entry["factor_vae_score"] = evaluation.factor_vae_score(model, dataset)
     entry["beta_vae_score"] = evaluation.beta_vae_score(model, dataset)
