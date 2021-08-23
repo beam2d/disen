@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 import pathlib
-from typing import Literal
+from typing import Callable, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -52,7 +52,15 @@ def variational_mi_metrics(
 
     _logger.info("approximating I(y_j; z_i)...")
     mi_zi_yj = normalize(
-        _estimate_mi(model, dataset, zi, arch="MLP", width=200, depth=4, n_epochs=2)
+        _estimate_mi(
+            model,
+            dataset,
+            zi,
+            lambda n_in, n_out: nn.MLP(n_in, n_out, 200, 4),
+            n_epochs=10,
+            init_lr=3e-3,
+            target_lr=5e-4,
+        )
     )
     _logger.info(f"I(y_j; z_i)/H(y_j) =\n{mi_zi_yj}")
 
@@ -62,10 +70,10 @@ def variational_mi_metrics(
             model,
             dataset,
             zmi,
-            arch="DenseNet",
-            width=200,
-            depth=20,
-            n_epochs=20,
+            lambda n_in, n_out: nn.DenseNet(n_in, n_out, 200, 15),
+            n_epochs=50,
+            init_lr=2e-3,
+            target_lr=1e-4,
         )
     )
     _logger.info(f"I(y_j; z_{{-i}})/H(y_j) =\n{mi_zmi_yj}")
@@ -76,10 +84,10 @@ def variational_mi_metrics(
             model,
             dataset,
             z,
-            arch="DenseNet",
-            width=200,
-            depth=30,
-            n_epochs=20,
+            lambda n_in, n_out: nn.DenseNet(n_in, n_out, 200, 15),
+            n_epochs=50,
+            init_lr=2e-3,
+            target_lr=1e-4,
         )
     )
     _logger.info(f"I(y_j; z)/H(y_j) =\n{mi_z_yj}")
@@ -91,104 +99,115 @@ def variational_mi_metrics(
     return VariationalMIMetrics(mi_zi_yj, mi_zmi_yj, mi_z_yj, ub_l, ub_u)
 
 
+class MultitaskClassifier(torch.nn.Module):
+    def __init__(
+        self,
+        spec: models.LatentSpec,
+        z_masks: torch.Tensor,
+        y_categories: Sequence[int],
+        arch: Callable[[int, int], torch.nn.Module],
+    ) -> None:
+        super().__init__()
+        elem_maps = [
+            torch.eye(latent.size).repeat_interleave(latent.n_categories, 1)
+            for latent in spec
+        ]
+        i_to_elems = torch.block_diag(*elem_maps)
+        elems = z_masks @ i_to_elems
+        self.z_indices = nn.BufferList([mask.nonzero()[:, 0] for mask in elems])
+
+        self.y_categories = y_categories
+        n_y_elems = sum(y_categories)
+        self.clfs = torch.nn.ModuleList(
+            [arch(int(elems_i.sum()), n_y_elems) for elems_i in elems]
+        )
+
+    def forward(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        m = len(self.z_indices)
+        n = len(self.y_categories)
+
+        xents: list[torch.Tensor] = []
+        for index, clf in zip(self.z_indices, self.clfs):
+            z_Si = z[:, index]
+            y_pred = clf(z_Si)
+            yj_pred = y_pred.split(self.y_categories, 1)
+            for j in range(n):
+                loss = F.cross_entropy(yj_pred[j], y[:, j])
+                xents.append(loss)
+        return torch.stack(xents).reshape(m, n)
+
+
 def _estimate_mi(
     model: models.LatentVariableModel,
     dataset: data.DatasetWithFactors,
-    z_indices: torch.Tensor,
-    arch: Literal["MLP", "DenseNet"] = "DenseNet",
-    width: int = 200,
-    depth: int = 6,
+    z_masks: torch.Tensor,
+    arch: Callable[[int, int], torch.nn.Module],
+    n_epochs: int,
     batch_size: int = 1024,
-    n_epochs: int = 20,
-    lr: float = 1e-3,
+    init_lr: float = 1e-3,
+    target_lr: float = 0.0,
+    eval_sample_size: int = 5,
 ) -> torch.Tensor:
-    _logger.info(f"Variational bound of MI... (indices[0]={z_indices[0].tolist()})")
+    _logger.info(f"Variational bound of MI... (indices[0]={z_masks[0].tolist()})")
     model.eval()
 
+    N = len(dataset)
+    m = z_masks.shape[0]
     n = dataset.n_factors
+    epoch_inference = models.EpochInference(model, dataset)
 
-    elem_maps = [
-        torch.eye(latent.size).repeat_interleave(latent.n_categories, 1)
-        for latent in model.spec
-    ]
-    i_to_elems = torch.block_diag(*elem_maps)
-    elems = z_indices @ i_to_elems
-
-    nn_gen = {"MLP": nn.MLP, "DenseNet": nn.DenseNet}[arch]
-    clfs = [
-        [
-            nn_gen(int(elems_i.sum()), n_yj, width, depth).to(model.device)
-            for n_yj in dataset.n_factor_values
-        ]
-        for elems_i in elems
-    ]
-    indices = [mask.nonzero()[:, 0].to(model.device) for mask in elems]
-
-    train_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=1
+    estimator = MultitaskClassifier(model.spec, z_masks, dataset.n_factor_values, arch)
+    estimator.to(model.device)
+    optimizer = torch.optim.Adam(estimator.parameters(), lr=init_lr, amsgrad=True)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, n_epochs, target_lr
     )
 
-    optimizers = [
-        [torch.optim.Adam(clf.parameters(), lr=lr) for clf in clfs_i]
-        for clfs_i in clfs
-    ]
+    for epoch in range(n_epochs):
+        estimator.train()
+        z_all, y_all = epoch_inference.next_epoch()
+        perm = torch.randperm(N).to(model.device)
+        accum = z_all.new_zeros(())
 
-    for epoch in range(1, n_epochs + 1):
-        for clfs_i in clfs:
-            for clf in clfs_i:
-                clf.train()
+        for i in range(0, N, batch_size):
+            B = min(batch_size, N - i)
+            z = z_all[perm[i : i + B]]
+            y = y_all[perm[i : i + B]]
 
-        accum = 0.0
-        count = 0
-        for x, y in train_loader:
-            B = x.shape[0]
-            x = x.to(model.device)
-            y = y.to(model.device)
-            z = torch.cat([q_z.sample().reshape(B, -1) for q_z in model.encode(x)], 1)
+            with torch.enable_grad():
+                estimator.zero_grad(set_to_none=True)
+                loss = estimator(z, y).sum()
+                loss.backward()
+                optimizer.step()
 
-            total_loss = z.new_zeros(())
-            for index, clf_i, optims_i in zip(indices, clfs, optimizers):
-                z_Si = z[:, index]
-                for yj, clf, optim in zip(y.T, clf_i, optims_i):
-                    with torch.enable_grad():
-                        clf.zero_grad(set_to_none=True)
-                        loss = F.cross_entropy(clf(z_Si), yj)
-                        loss.backward()
-                        optim.step()
-                        total_loss += loss.detach()
+            accum += loss * (B / (m * n))
 
-            accum += float(total_loss) * B / (len(clfs) * n)
-            count += B
+        loss_avg = float(accum) / N
+        last_lr = scheduler.get_last_lr()[0]
+        _logger.info(
+            f"=== finshed epoch {epoch + 1}/{n_epochs} --- loss={loss_avg} --- lr={last_lr}"
+        )
 
-        loss_avg = accum / count
-        _logger.info(f"=== finshed epoch {epoch}/{n_epochs} --- loss={loss_avg}")
+        scheduler.step()
 
     _logger.info("Estimating...")
-    eval_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=1
-    )
-    for clfs_i in clfs:
-        for clf in clfs_i:
-            clf.eval()
+    estimator.eval()
 
-    batch_sums: list[torch.Tensor] = []
-    count = 0
-    for x, y in eval_loader:
-        B = x.shape[0]
-        x = x.to(model.device)
-        y = y.to(model.device)
-        z = torch.cat([q_z.sample().reshape(B, -1) for q_z in model.encode(x)], 1)
+    trial_sums: list[torch.Tensor] = []
 
-        xents: list[torch.Tensor] = []
-        for index, clfs_i in zip(indices, clfs):
-            z_Si = z[:, index]
-            for yj, clf in zip(y.T, clfs_i):
-                xent = F.cross_entropy(clf(z_Si), yj, reduction="sum")
-                xents.append(xent)
+    for _ in range(eval_sample_size):
+        z_all, y_all = epoch_inference.next_epoch()
+        xent_batches: list[torch.Tensor] = []
 
-        batch_sums.append(torch.stack(xents).reshape(len(clfs), n))
-        count += B
+        for i in range(0, N, batch_size):
+            B = min(batch_size, N - i)
+            z = z_all[i : i + B]
+            y = y_all[i : i + B]
+            xents = estimator(z, y)
+            xent_batches.append(xents * B)
 
-    mean_xents = torch.stack(batch_sums).sum(0) / count
+        trial_sums.append(torch.stack(xent_batches).sum(0) / N)
+
+    mean_xents = torch.stack(trial_sums).mean(0)
     H_yj = dataset.factor_entropies()
     return H_yj[None, :] - mean_xents.cpu()

@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 
 class FCBase(torch.nn.Module):
@@ -40,7 +41,7 @@ class DenseNet(FCBase):
         layers: list[torch.nn.Module] = []
         for i in range(depth - 1):
             fc = torch.nn.Linear(n_in + i * width, width)
-            act = torch.nn.ReLU()
+            act = torch.nn.SiLU()
             layers.append(torch.nn.Sequential(fc, act))
         self.mid_layers = torch.nn.ModuleList(layers)
         self.out_layer = torch.nn.Linear(n_in + (depth - 1) * width, n_out)
@@ -51,4 +52,38 @@ class DenseNet(FCBase):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for layer in self.mid_layers:
             x = torch.cat([x, layer(x)], 1)
+        return self.out_layer(x)
+
+
+class ResBlock(torch.nn.Module):
+    def __init__(self, width: int, bottleneck: int) -> None:
+        super().__init__()
+        self.fc1 = torch.nn.Linear(width, bottleneck)
+        self.fc2 = torch.nn.Linear(bottleneck, width)
+        self.alpha = torch.nn.Parameter(torch.zeros(()))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.fc1(F.silu(x))
+        h = self.fc2(F.silu(h))
+        return x + self.alpha * h
+
+
+class ResNet(FCBase):
+    def __init__(
+        self, n_in: int, n_out: int, width: int, bottleneck: int, depth: int
+    ) -> None:
+        super().__init__()
+        assert depth % 2 == 0
+        self.in_layer = torch.nn.Linear(n_in, width)
+        self.blocks = torch.nn.Sequential(
+            *[ResBlock(width, bottleneck) for _ in range(depth // 2 - 1)]
+        )
+        self.out_layer = torch.nn.Linear(width, n_out)
+
+        self.in_features = n_in
+        self.out_features = n_out
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.in_layer(x)
+        x = self.blocks(x)
         return self.out_layer(x)

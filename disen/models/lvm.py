@@ -3,7 +3,7 @@ from typing import Any, Callable, Sequence
 
 import torch
 
-from .. import distributions, nn
+from .. import data, distributions, nn
 from . import latent_spec
 
 
@@ -48,11 +48,28 @@ class LatentVariableModel(torch.nn.Module):
         q_zs = self.encode(x)
         return [q_z.mean for q_z in q_zs]
 
+    def encode_dataset(
+        self,
+        dataset: torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]],
+        batch_size: int = 8192,
+    ) -> tuple[list[distributions.Distribution], torch.Tensor]:
+        loader = torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, num_workers=1
+        )
+        qs: list[list[distributions.Distribution]] = []
+        ys: list[torch.Tensor] = []
+        for x, y in loader:
+            qs.append(self.encode(x.to(self.device)))
+            ys.append(y.to(self.device))
+        q_all = [distributions.cat(q_z_batches) for q_z_batches in zip(*qs)]
+        y_all = torch.cat(ys, 0)
+        return (q_all, y_all)
+
     def log_posterior(
         self, x: torch.Tensor, zs: Sequence[torch.Tensor]
     ) -> torch.Tensor:
         """Compute log density of the posterior.
-        
+
         It computes [log q(z_i|x)]_i.
         """
         assert self.has_valid_elemwise_posterior
@@ -75,7 +92,7 @@ class LatentVariableModel(torch.nn.Module):
         self, x: torch.Tensor, zs: Sequence[torch.Tensor]
     ) -> torch.Tensor:
         """Compute log density of the joint posterior.
-        
+
         It computes log q(z|x). Note that it adds a singleton dimension at the end for
         consistency with other functions.
         """
@@ -119,7 +136,7 @@ class LatentVariableModel(torch.nn.Module):
         zs: Sequence[torch.Tensor],
     ) -> torch.Tensor:
         """Compute log density of the aggregated joint posterior.
-        
+
         It aggregates the posterior over a given dataset of x to compute log q(z).
         """
         return self._log_aggregated_posterior(
@@ -192,7 +209,7 @@ class LatentVariableModel(torch.nn.Module):
         outer_batch_size: int,
     ) -> torch.Tensor:
         """Compute the entropy of joint posterior.
-        
+
         It computes H(z) = E[-log E_x[q(z|x)]].
         """
         return self._aggregated_entropy(
@@ -223,3 +240,28 @@ class LatentVariableModel(torch.nn.Module):
         loader = torch.utils.data.DataLoader(dataset, batch_size, num_workers=1)
         q_batches = [self.encode(batch[0].to(self.device)) for batch in loader]
         return [distributions.cat(qs).sample()[:, None] for qs in zip(*q_batches)]
+
+
+class EpochInference:
+    def __init__(
+        self,
+        model: LatentVariableModel,
+        dataset: torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]],
+        batch_size: int = 8192,
+    ) -> None:
+        super().__init__()
+        self.model = model
+        if model.has_valid_elemwise_posterior:
+            self.pre_encoded = model.encode_dataset(dataset, batch_size)
+        else:
+            self.dataset = dataset
+            self.batch_size = batch_size
+
+    def next_epoch(self) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.model.has_valid_elemwise_posterior:
+            q_all, y_all = self.pre_encoded
+        if not self.model.has_valid_elemwise_posterior:
+            q_all, y_all = self.model.encode_dataset(self.dataset, self.batch_size)
+
+        z_all = torch.cat([q.sample() for q in q_all], 1)
+        return (z_all, y_all)

@@ -24,8 +24,6 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "mig",
             "unibound_l",
             "unibound_u",
-            "unibound_l_dre",
-            "unibound_u_dre",
         ],
         "metric",
         "score",
@@ -37,26 +35,19 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "mig": "MIG",
             "unibound_l": "UniBound-L",
             "unibound_u": "UniBound-U",
-            "unibound_l_dre": "UniBound-L(DRE)",
-            "unibound_u_dre": "UniBound-U(DRE)",
         }
     )
     df_clean = df.loc[df["alpha"] == 0.0]
-    df_attack = df.loc[
-        ((df["train_seed"] == 1) & (df["model"] == "CascadeVAE"))
-        | ((df["train_seed"] == 6) & (df["model"] == "TCVAE"))
-    ]
+    df_attack = df.loc[((df["train_seed"] == 6) & (df["model"] == "TCVAE"))]
 
     metric_order = [
         "BetaVAE",
         "FactorVAE",
         "MIG",
         "UniBound-L",
-        "UniBound-L(DRE)",
         "UniBound-U",
-        "UniBound-U(DRE)",
     ]
-    model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE", "CascadeVAE"]
+    model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE"]
 
     seaborn.set("paper", "darkgrid", "muted")
 
@@ -69,7 +60,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         y="score",
         hue="model",
         hue_order=model_order,
-        aspect=2.0,
+        legend_out=False,
         data=df_clean,
     )
     _render_and_close(fg, task_dir / "model_metric.png")
@@ -82,26 +73,28 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             y="score",
             hue="train_seed",
             legend=False,
-            aspect=2.0,
             data=df_clean.loc[df_clean["model"] == model],
         )
         _render_and_close(fg, task_dir / f"eval_deviation-{model}.png")
 
-    fg = seaborn.relplot(
-        kind="line",
-        x="alpha",
-        y="score",
-        hue="metric",
-        hue_order=metric_order,
-        col="model",
-        col_order=["TCVAE", "CascadeVAE"],
-        data=df_attack,
-    )
-    _render_and_close(fg, task_dir / f"attacked.png")
+    for model in ["TCVAE"]:
+        fg = seaborn.relplot(
+            kind="line",
+            x="alpha",
+            y="score",
+            hue="metric",
+            hue_order=metric_order,
+            data=df_attack.loc[df_attack["model"] == model],
+        )
+        fg._legend.set_bbox_to_anchor([0.8, 0.55])
+        for ax in fg.axes.flatten():
+            ax.set_xticks([0.0, 0.5, 1.0, 1.5, 2.0])
+        _render_and_close(fg, task_dir / f"attacked-{model}.png")
 
 
 def _render_and_close(fg: seaborn.FacetGrid, path: pathlib.Path) -> None:
-    fg.fig.savefig(path)
+    fg.set_axis_labels("", "")
+    fg.figure.savefig(path)
     pyplot.close(fg.fig)
 
 
