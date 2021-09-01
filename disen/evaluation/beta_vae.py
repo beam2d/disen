@@ -19,15 +19,14 @@ def beta_vae_score(
     sample_size: int = 200,
     eval_size: int = 800,
     batch_size: int = 10,
-    lr: float = 0.01,
-    n_iters: int = 10_000,
+    lr: float = 1.,
+    n_iters: int = 3_000,
 ) -> float:
     _logger.info("computing BetaVAE score...")
     model.eval()
 
     device = model.device
     classifier = torch.nn.Linear(model.spec.size, dataset.n_factors, device=device)
-    classifier.weight.detach().zero_()
     optimizer = torch.optim.Adagrad(classifier.parameters(), lr=lr)
 
     n_train = n_iters * batch_size

@@ -24,6 +24,10 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "mig",
             "unibound_l",
             "unibound_u",
+            "redundancy_l",
+            "redundancy_u",
+            "synergy_l",
+            "synergy_u",
         ],
         "metric",
         "score",
@@ -33,19 +37,28 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "beta_vae_score": "BetaVAE",
             "factor_vae_score": "FactorVAE",
             "mig": "MIG",
-            "unibound_l": "UniBound-L",
-            "unibound_u": "UniBound-U",
+            "unibound_l": "UniBound",
+            "unibound_u": "UniBound_u",
+            "redundancy_l": "redundancy",
+            "redundancy_u": "redundancy_u",
+            "synergy_l": "synergy",
+            "synergy_u": "synergy_u",
         }
     )
+    # Remove unsuccessful trials of JointVAE
+    df = df.loc[(df["model"] != "JointVAE") | df["train_seed"].isin([3, 5, 6])]
+
     df_clean = df.loc[df["alpha"] == 0.0]
-    df_attack = df.loc[((df["train_seed"] == 6) & (df["model"] == "TCVAE"))]
+    df_attack = df.loc[
+        ((df["train_seed"] == 6) & (df["model"] == "TCVAE"))
+        | ((df["train_seed"] == 5) & (df["model"] == "βVAE"))
+    ]
 
     metric_order = [
         "BetaVAE",
         "FactorVAE",
         "MIG",
-        "UniBound-L",
-        "UniBound-U",
+        "UniBound",
     ]
     model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE"]
 
@@ -63,6 +76,8 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         legend_out=False,
         data=df_clean,
     )
+    fg.set_axis_labels("metric", "disentanglenet score")
+    fg.set(ylim=(0, 1))
     _render_and_close(fg, task_dir / "model_metric.png")
 
     for model in model_order:
@@ -75,25 +90,59 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             legend=False,
             data=df_clean.loc[df_clean["model"] == model],
         )
+        fg.set_axis_labels("", "disentanglement score")
+        fg.set(ylim=(0, 1))
         _render_and_close(fg, task_dir / f"eval_deviation-{model}.png")
 
-    for model in ["TCVAE"]:
-        fg = seaborn.relplot(
-            kind="line",
-            x="alpha",
+    pid_keys = ["UniBound", "redundancy", "synergy"]
+    ub_keys = [f"{k}_u" for k in pid_keys]
+    fg = seaborn.catplot(
+        kind="bar",
+        x="metric",
+        order=ub_keys,
+        y="score",
+        col="model",
+        col_order=model_order,
+        color="orange",
+        legend=False,
+        aspect=0.3,
+        facet_kws={"gridspec_kws": {"wspace": 0.1}},
+        data=df_clean,
+    )
+    for model, ax in fg.axes_dict.items():
+        seaborn.barplot(
+            x="metric",
+            order=pid_keys,
             y="score",
-            hue="metric",
-            hue_order=metric_order,
-            data=df_attack.loc[df_attack["model"] == model],
+            color="#EAEAF2",
+            data=df_clean.loc[df_clean["model"] == model],
+            ax=ax,
         )
-        fg._legend.set_bbox_to_anchor([0.8, 0.55])
-        for ax in fg.axes.flatten():
-            ax.set_xticks([0.0, 0.5, 1.0, 1.5, 2.0])
-        _render_and_close(fg, task_dir / f"attacked-{model}.png")
+    fg.set_xticklabels(["U", "R", "C"])
+    fg.set_titles("{col_name}")
+    fg.set_axis_labels("", "normalized value")
+    fg.set(ylim=(0, 0.7))
+    _render_and_close(fg, task_dir / "range.png")
+
+    fg = seaborn.relplot(
+        kind="line",
+        x="alpha",
+        y="score",
+        hue="metric",
+        hue_order=metric_order,
+        col="model",
+        col_order=["βVAE", "TCVAE"],
+        aspect=0.5,
+        data=df_attack,
+    )
+    fg.set_titles("{col_name}")
+    fg.set_axis_labels("α", "disentanglement score")
+    for ax in fg.axes.flatten():
+        ax.set_xticks([0.0, 0.5, 1.0, 1.5, 2.0])
+    _render_and_close(fg, task_dir / f"attacked.png")
 
 
 def _render_and_close(fg: seaborn.FacetGrid, path: pathlib.Path) -> None:
-    fg.set_axis_labels("", "")
     fg.figure.savefig(path)
     pyplot.close(fg.fig)
 

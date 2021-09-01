@@ -22,8 +22,12 @@ class MIMetrics:
     mi_z_yj: torch.Tensor
     mi: float  # mutual information
     mig: float  # mutual information gap
-    unibound_l: float  # unibound (lower)
-    unibound_u: float  # unibound (upper)
+    unibound_l: float
+    unibound_u: float
+    redundancy_l: float
+    redundancy_u: float
+    synergy_l: float
+    synergy_u: float
 
     def get_scores(self) -> dict[str, float]:
         return {
@@ -31,11 +35,15 @@ class MIMetrics:
             "mig": self.mig,
             "unibound_l": self.unibound_l,
             "unibound_u": self.unibound_u,
+            "redundancy_l": self.redundancy_l,
+            "redundancy_u": self.redundancy_u,
+            "synergy_l": self.synergy_l,
+            "synergy_u": self.synergy_u,
         }
 
     def save(self, path: pathlib.Path) -> None:
         with log_util.torch_sci_mode_disabled():
-            with open(path, "w") as f:
+            with open(path / "mi_metrics.txt", "w") as f:
                 f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
                 f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
                 f.write(f"mi_z_yj=\n{self.mi_z_yj}\n")
@@ -43,6 +51,10 @@ class MIMetrics:
                 f.write(f"mig={self.mig}\n")
                 f.write(f"unibound_l={self.unibound_l}\n")
                 f.write(f"unibound_u={self.unibound_u}\n")
+                f.write(f"redundancy_l={self.redundancy_l}\n")
+                f.write(f"redundancy_u={self.redundancy_u}\n")
+                f.write(f"synergy_l={self.synergy_l}\n")
+                f.write(f"synergy_u={self.synergy_u}\n")
 
 
 @torch.no_grad()
@@ -65,7 +77,14 @@ def mi_metrics(
     mig = _gap(mi_zi_yj, 0).mean().item()
     ub_l = (mi_zi_yj - mi_zmi_yj).relu().amax(0).mean().item()
     ub_u = torch.minimum((mi_z_yj - mi_zmi_yj).relu(), mi_zi_yj).amax(0).mean().item()
-    return MIMetrics(mi_zi_yj, mi_zmi_yj, mi_z_yj, mi, mig, ub_l, ub_u)
+    ii = mi_zi_yj + mi_zmi_yj - mi_z_yj
+    red_l = ii.relu().amax(0).mean().item()
+    red_u = torch.minimum(mi_zi_yj, mi_zmi_yj).amax(0).mean().item()
+    syn_l = (-ii).relu().amax(0).mean().item()
+    syn_u = (mi_z_yj - torch.maximum(mi_zi_yj, mi_zmi_yj)).relu().amax(0).mean().item()
+    return MIMetrics(
+        mi_zi_yj, mi_zmi_yj, mi_z_yj, mi, mig, ub_l, ub_u, red_l, red_u, syn_l, syn_u
+    )
 
 
 def _compute_mi_zi_yj(
