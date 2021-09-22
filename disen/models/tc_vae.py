@@ -72,9 +72,9 @@ class TCVAE(lvm.LatentVariableModel):
         # [log q(z(x_j) | x_j)]_j
         log_qz_x = log_qzi_x.diagonal().sum(0)
         # [log q(z_i(x_j))]_{ji}
-        log_qzi = _mws_log_marginal(log_qzi_x, B, N)
+        log_qzi = _mss_log_marginal(log_qzi_x, B, N)
         # [log q(z(x_j))]_j
-        log_qz = _mws_log_marginal(log_qzi_x.sum(2), B, N)
+        log_qz = _mss_log_marginal(log_qzi_x.sum(2), B, N)
         # [log p(z_i(x_j))]_{ji}
         log_pzi = p_z.log_prob(z)
 

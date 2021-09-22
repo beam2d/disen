@@ -253,7 +253,7 @@ def _train_model(
     out_dir: pathlib.Path,
 ) -> training.History:
     dataset = _get_dataset(task, dataset_path)
-    n_iters = {"dSprites": 30_000, "3dshapes": 50_000}[task]
+    n_iters = {"dSprites": 300_000, "3dshapes": 500_000}[task]
     batch_size = 64
     eval_batch_size = 2048
     model.to(device)
@@ -310,14 +310,13 @@ def _train_model(
         )
 
     if model_type == "TCVAE":
-        n_iters = {"dSprites": 40_000, "3dshapes": 60_000}[task]
         return training.train_model(
             model,
             dataset,
             optimizer=torch.optim.Adam(model.parameters(), lr=1e-3),
             batch_size=2048,
             eval_batch_size=eval_batch_size,
-            n_iters=n_iters,
+            n_iters=n_iters // 10,
             out_dir=out_dir,
         )
 
