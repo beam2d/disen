@@ -72,9 +72,9 @@ class TCVAE(lvm.LatentVariableModel):
         # [log q(z(x_j) | x_j)]_j
         log_qz_x = log_qzi_x.diagonal().sum(0)
         # [log q(z_i(x_j))]_{ji}
-        log_qzi = _mss_log_marginal(log_qzi_x, B - 1, N)
+        log_qzi = _mws_log_marginal(log_qzi_x, B, N)
         # [log q(z(x_j))]_j
-        log_qz = _mss_log_marginal(log_qzi_x.sum(2), B - 1, N)
+        log_qz = _mws_log_marginal(log_qzi_x.sum(2), B, N)
         # [log p(z_i(x_j))]_{ji}
         log_pzi = p_z.log_prob(z)
 
@@ -86,17 +86,32 @@ class TCVAE(lvm.LatentVariableModel):
         # sum_i KL(q(z_i) || p(z_i)) ~= sum_i [log q(z_i(x_j)) - log p(z_i(x_j))]
         dimkl = (log_qzi - log_pzi).sum(1)
 
-        print(f"kl={kl.mean().item()} kl'={(log_qz_x - log_pzi.sum(1)).mean().item()} tc={tc.mean().item()}")
+        print(
+            f"kl={kl.mean().item()} kl'={(log_qz_x - log_pzi.sum(1)).mean().item()} tc={tc.mean().item()}"
+        )
 
         loss = recon + self.alpha * icmi + self.beta * tc + self.gamma * dimkl
-        return {"loss": loss, "elbo": elbo, "recon": recon, "icmi": icmi, "tc": tc, "dimkl": dimkl}
+        return {
+            "loss": loss,
+            "elbo": elbo,
+            "recon": recon,
+            "icmi": icmi,
+            "tc": tc,
+            "dimkl": dimkl,
+        }
 
 
-def _mss_log_marginal(log_qz_x: torch.Tensor, M: int, N: int) -> torch.Tensor:
+def _mws_log_marginal(log_qz_x: torch.Tensor, M: int, N: int) -> torch.Tensor:
+    # Minibatch Weighted Sampling
+    return log_qz_x.logsumexp(1) - math.log(M * N)
+
+
+def _mss_log_marginal(log_qz_x: torch.Tensor, B: int, N: int) -> torch.Tensor:
     # Minibatch Stratified Sampling
     # We alter the original derivation to simplify the computation.
     # q(z) = 1/N q(z|n^*) + (1/M - 1/MN) sum_i q(z|n_i)
     # We do the computation in log space.
+    M = B - 1
     log_coeff = torch.full_like(log_qz_x, math.log((N - 1) / (M * N)))
     log_coeff.diagonal()[:] = -math.log(N)
     return (log_qz_x + log_coeff).logsumexp(1)

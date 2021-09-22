@@ -8,10 +8,10 @@ from typing import Any, Callable, Iterator, Literal, Optional, TypeVar, cast
 import numpy
 import torch
 
-from . import attack, data, evaluation, log_util, models, nn, training
+from . import attack, data, evaluation, log_util, models, nn, str_util, training
 
 
-TaskType = Literal["dSprites"]
+TaskType = Literal["dSprites", "3dshapes"]
 ModelType = Literal["betaVAE", "CascadeVAE", "FactorVAE", "JointVAE", "TCVAE"]
 _T = TypeVar("_T")
 
@@ -34,12 +34,14 @@ class Experiment:
         assert self.phase == "eval"
         return self.get_dir() / "entry.json"
 
+    def get_history_path(self) -> pathlib.Path:
+        return self._get_common_dir() / "phase-train" / "history.json"
+
     def get_dir(self) -> pathlib.Path:
         out_dir = self._get_common_dir()
         out_dir /= f"phase-{self.phase}"
         if self.eval_seed is not None:
             out_dir /= f"eval_seed-{self.eval_seed}"
-        if self.alpha is not None:
             out_dir /= f"alpha-{self.alpha}"
         return out_dir
 
@@ -54,12 +56,9 @@ class Experiment:
         model = self._make_model()
         exp_dir = self.get_dir()
 
-        if self.task == "dSprites":
-            history = _train_model_for_dsprites(
-                model, self.model, self.dataset_path, device, exp_dir
-            )
-        else:
-            raise ValueError(f"unknown task type: {self.task}")
+        history = _train_model(
+            self.task, model, self.model, self.dataset_path, device, exp_dir
+        )
 
         torch.save(model.state_dict(), self.get_model_path())
         history.save(exp_dir / "history.json")
@@ -73,8 +72,8 @@ class Experiment:
         model = self._make_model()
         pt_path = self.get_model_path()
         model.load_state_dict(torch.load(pt_path, map_location="cpu"))
-        entry = _evaluate_model_for_dsprites(
-            model, self.dataset_path, device, self.alpha, self.get_dir()
+        entry = _evaluate_model(
+            self.task, model, self.dataset_path, device, self.alpha, self.get_dir()
         )
         with open(self.get_entry_path(), "w") as f:
             json.dump(entry, f, indent=4)
@@ -83,22 +82,22 @@ class Experiment:
         return self.get_entry_path().exists()
 
     def load_entry(self) -> dict[str, float]:
+        with open(self.get_history_path()) as f:
+            history: list[dict[str, float]] = json.load(f)
+            d = history[-1]
         with open(self.get_entry_path()) as f:
-            return json.load(f)
+            entry: dict[str, float] = json.load(f)
+        entry.update(d)
+        return entry
 
     def load_entry_with_attrs(self) -> dict[str, Any]:
         entry: dict[str, Any] = self.load_entry()
-        assert self.eval_seed is not None
-        assert self.alpha is not None
-        entry.update(
-            {
-                "task": self.task,
-                "model": self.model,
-                "train_seed": self.train_seed,
-                "eval_seed": self.eval_seed,
-                "alpha": self.alpha,
-            }
-        )
+        entry["task"] = self.task
+        entry["model"] = self.model
+        entry["train_seed"] = self.train_seed
+        if self.eval_seed is not None:
+            entry["eval_seed"] = self.eval_seed
+        entry["alpha"] = self.alpha
         return entry
 
     def _get_common_dir(self) -> pathlib.Path:
@@ -124,9 +123,7 @@ class Experiment:
             subprocess.run(["git", "diff"], stdout=f)
 
     def _make_model(self) -> models.LatentVariableModel:
-        if self.task == "dSprites":
-            return _make_model_for_dsprites(self.model)
-        raise ValueError(f"unknown task type: {self.task}")
+        return _make_model(self.task, self.model)
 
 
 def collect_experiments(
@@ -149,7 +146,7 @@ def collect_experiments(
     for model, d in dig(root / f"task-{task}", "model", str):
         for train_seed, d in dig(d, "train_seed", int):
             for eval_seed, d in dig(d / "phase-eval", "eval_seed", int):
-                for alpha, d in dig(d, "alpha", float):
+                for alpha, _ in dig(d, "alpha", str_util.parse_optional(float)):
                     yield Experiment(
                         root,
                         dataset_path,
@@ -169,22 +166,41 @@ def _init_seed(seed: int) -> None:
     torch.manual_seed(seed + 12_345_678)
 
 
-def _make_model_for_dsprites(model: ModelType) -> models.LatentVariableModel:
-    image_size = 64
-    dataset_size = 737_280
-    n_latents = 6
-    n_categories = 3
+def _get_dataset(task: TaskType, path: pathlib.Path) -> data.DatasetWithFactors:
+    if task == "dSprites":
+        return data.DSprites(path)
+    if task == "3dshapes":
+        return data.Shapes3d(path)
+    raise ValueError(f"unknown task: {task}")
+
+
+def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
+    if task == "dSprites":
+        image_size = 64
+        channels = 1
+        dataset_size = 737_280
+        n_latents = 6
+        n_categories = 3
+    elif task == "3dshapes":
+        image_size = 64
+        channels = 3
+        dataset_size = 480_000
+        n_latents = 6
+        n_categories = 4
+    else:
+        raise ValueError(f"unknown task: {task}")
+
     n_continuous = n_latents - 1
     n_latent_features = n_categories + n_continuous
 
     if model == "betaVAE":
-        encoder = nn.SimpleConvNet(image_size, 1, 256)
-        decoder = nn.SimpleTransposedConvNet(image_size, n_latents, 1)
+        encoder = nn.SimpleConvNet(image_size, channels, 256)
+        decoder = nn.SimpleTransposedConvNet(image_size, n_latents, channels)
         return models.VAE(encoder, decoder, n_latents, beta=4.0)
 
     if model == "CascadeVAE":
-        encoder = nn.SimpleConvNet(image_size, 1, 256)
-        decoder = nn.SimpleTransposedConvNet(image_size, n_latent_features, 1)
+        encoder = nn.SimpleConvNet(image_size, channels, 256)
+        decoder = nn.SimpleTransposedConvNet(image_size, n_latent_features, channels)
         return models.CascadeVAE(
             encoder,
             decoder,
@@ -198,14 +214,15 @@ def _make_model_for_dsprites(model: ModelType) -> models.LatentVariableModel:
         )
 
     if model == "FactorVAE":
-        encoder = nn.SimpleConvNet(image_size, 1, 256)
-        decoder = nn.SimpleTransposedConvNet(image_size, n_latents, 1)
+        encoder = nn.SimpleConvNet(image_size, channels, 256)
+        decoder = nn.SimpleTransposedConvNet(image_size, n_latents, channels)
         discr = models.FactorVAEDiscriminator(n_latents)
-        return models.FactorVAE(encoder, decoder, discr, gamma=35.0)
+        gamma = {"dSprites": 35.0, "3dshapes": 20.0}[task]
+        return models.FactorVAE(encoder, decoder, discr, gamma=gamma)
 
     if model == "JointVAE":
-        encoder = nn.SimpleConvNet(image_size, 1, 256)
-        decoder = nn.SimpleTransposedConvNet(image_size, n_latent_features, 1)
+        encoder = nn.SimpleConvNet(image_size, channels, 256)
+        decoder = nn.SimpleTransposedConvNet(image_size, n_latent_features, channels)
         return models.JointVAE(
             encoder,
             decoder,
@@ -219,31 +236,37 @@ def _make_model_for_dsprites(model: ModelType) -> models.LatentVariableModel:
         )
 
     if model == "TCVAE":
-        encoder = nn.SimpleConvNet(image_size, 1, 256)
-        decoder = nn.SimpleTransposedConvNet(image_size, n_latents, 1)
-        return models.TCVAE(encoder, decoder, n_latents, dataset_size, beta=6.0)
+        beta = {"dSprites": 6.0, "3dshapes": 4.0}[task]
+        encoder = nn.SimpleConvNet(image_size, channels, 256)
+        decoder = nn.SimpleTransposedConvNet(image_size, n_latents, channels)
+        return models.TCVAE(encoder, decoder, n_latents, dataset_size, beta=beta)
 
-    raise ValueError(f"unknown model type: {model}")
+    raise ValueError(f"unknown model: {model}")
 
 
-def _train_model_for_dsprites(
+def _train_model(
+    task: TaskType,
     model: models.LatentVariableModel,
     model_type: ModelType,
     dataset_path: pathlib.Path,
     device: torch.device,
     out_dir: pathlib.Path,
 ) -> training.History:
-    dataset = data.DSprites(dataset_path)
+    dataset = _get_dataset(task, dataset_path)
+    n_iters = {"dSprites": 30_000, "3dshapes": 50_000}[task]
+    batch_size = 64
+    eval_batch_size = 2048
     model.to(device)
 
     if model_type == "betaVAE":
+        lr = {"dSprites": 5e-4, "3dshapes": 1e-4}[task]
         return training.train_model(
             model,
             dataset,
-            optimizer=torch.optim.Adam(model.parameters(), lr=5e-4),
-            batch_size=64,
-            eval_batch_size=2048,
-            n_epochs=50,
+            optimizer=torch.optim.Adam(model.parameters(), lr=lr),
+            batch_size=batch_size,
+            eval_batch_size=eval_batch_size,
+            n_iters=n_iters,
             out_dir=out_dir,
         )
 
@@ -252,64 +275,67 @@ def _train_model_for_dsprites(
             model,
             dataset,
             optimizer=torch.optim.Adam(model.parameters(), lr=3e-4),
-            batch_size=64,
-            eval_batch_size=2048,
-            n_epochs=50,
+            batch_size=batch_size,
+            eval_batch_size=eval_batch_size,
+            n_iters=n_iters,
             out_dir=out_dir,
         )
 
     if model_type == "FactorVAE":
         assert isinstance(model, models.FactorVAE)
+        d_lr = {"dSprites": 1e-4, "3dshapes": 1e-5}[task]
         return training.train_factor_vae(
             model,
             dataset,
-            batch_size=64,
-            eval_batch_size=2048,
+            batch_size=batch_size,
+            eval_batch_size=eval_batch_size,
             lr=1e-4,
             betas=(0.9, 0.999),
-            d_lr=1e-4,
+            d_lr=d_lr,
             d_betas=(0.5, 0.9),
-            n_epochs=50,
+            n_iters=n_iters,
             out_dir=out_dir,
         )
 
     if model_type == "JointVAE":
+        lr = {"dSprites": 5e-4, "3dshapes": 1e-4}[task]
         return training.train_model(
             model,
             dataset,
-            optimizer=torch.optim.Adam(model.parameters(), lr=5e-4),
-            batch_size=64,
-            eval_batch_size=2048,
-            n_epochs=50,
+            optimizer=torch.optim.Adam(model.parameters(), lr=lr),
+            batch_size=batch_size,
+            eval_batch_size=eval_batch_size,
+            n_iters=n_iters,
             out_dir=out_dir,
         )
 
     if model_type == "TCVAE":
+        n_iters = {"dSprites": 40_000, "3dshapes": 60_000}[task]
         return training.train_model(
             model,
             dataset,
             optimizer=torch.optim.Adam(model.parameters(), lr=1e-3),
             batch_size=2048,
-            eval_batch_size=2048,
-            n_epochs=50,
+            eval_batch_size=eval_batch_size,
+            n_iters=n_iters,
             out_dir=out_dir,
         )
 
-    raise TypeError(f"unknown model type: {type(model)}")
+    raise ValueError(f"unknown model type: {model_type}")
 
 
-def _evaluate_model_for_dsprites(
+def _evaluate_model(
+    task: TaskType,
     model: models.LatentVariableModel,
     dataset_path: pathlib.Path,
     device: torch.device,
     alpha: Optional[float],
     out_dir: pathlib.Path,
 ) -> dict[str, float]:
-    dataset = data.DSprites(dataset_path)
+    dataset = _get_dataset(task, dataset_path)
     model.to(device)
 
-    alpha = alpha or 0.0
-    if alpha != 0.0:
+    if alpha is not None:
         D = model.spec.real_components_size
         U = (torch.eye(D) - 2 / D).to(model.device)
         model = attack.RedundancyAttack(model, alpha, U)

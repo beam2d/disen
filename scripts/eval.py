@@ -15,7 +15,7 @@ def main() -> None:
     parser.add_argument("--train_seed", required=True, type=int)
     parser.add_argument("--eval_seed", required=True, type=int)
     parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--alpha", type=float, default=0.0)
+    parser.add_argument("--alpha", type=disen.parse_optional(float))
     args = parser.parse_args()
 
     experiment = disen.Experiment(

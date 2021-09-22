@@ -20,7 +20,7 @@ class MIMetrics:
     mi_zi_yj: torch.Tensor
     mi_zmi_yj: torch.Tensor
     mi_z_yj: torch.Tensor
-    mi: float  # mutual information
+    mi: float  # mutual information (mean_j I(y_j; z)/H(y_j))
     mig: float  # mutual information gap
     unibound_l: float
     unibound_u: float
@@ -31,8 +31,8 @@ class MIMetrics:
 
     def get_scores(self) -> dict[str, float]:
         return {
-            "mi": self.mi,
             "mig": self.mig,
+            "mi": self.mi,
             "unibound_l": self.unibound_l,
             "unibound_u": self.unibound_u,
             "redundancy_l": self.redundancy_l,
@@ -47,8 +47,8 @@ class MIMetrics:
                 f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
                 f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
                 f.write(f"mi_z_yj=\n{self.mi_z_yj}\n")
-                f.write(f"mi={self.mi}\n")
                 f.write(f"mig={self.mig}\n")
+                f.write(f"mi={self.mi}\n")
                 f.write(f"unibound_l={self.unibound_l}\n")
                 f.write(f"unibound_u={self.unibound_u}\n")
                 f.write(f"redundancy_l={self.redundancy_l}\n")
@@ -73,8 +73,8 @@ def mi_metrics(
     mi_zmi_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_loo_entropy))
     _logger.info("computing mi_z_yj...")
     mi_z_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_joint_entropy))
-    mi = mi_zi_yj.amax(0).mean().item()
     mig = _gap(mi_zi_yj, 0).mean().item()
+    mi = mi_z_yj.mean().item()
     ub_l = (mi_zi_yj - mi_zmi_yj).relu().amax(0).mean().item()
     ub_u = torch.minimum((mi_z_yj - mi_zmi_yj).relu(), mi_zi_yj).amax(0).mean().item()
     ii = mi_zi_yj + mi_zmi_yj - mi_z_yj

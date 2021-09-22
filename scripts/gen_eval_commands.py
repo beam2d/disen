@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
-from typing import Sequence
+from typing import Optional, Sequence
+
+import disen
 
 
 def gen_eval_commands(
@@ -9,7 +11,7 @@ def gen_eval_commands(
     models: Sequence[str],
     train_seeds: Sequence[int],
     eval_seeds: Sequence[int],
-    alphas: Sequence[float],
+    alphas: Sequence[Optional[float]],
     out: str,
 ) -> None:
     for model in models:
@@ -36,7 +38,7 @@ def main() -> None:
     parser.add_argument("--model", required=True)
     parser.add_argument("--train_seed", required=True)
     parser.add_argument("--eval_seed", required=True)
-    parser.add_argument("--alpha", required=True)
+    parser.add_argument("--alpha")
     parser.add_argument("--out", default="out")
     args = parser.parse_args()
 
@@ -46,7 +48,7 @@ def main() -> None:
         args.model.split(","),
         list(map(int, args.train_seed.split(","))),
         list(map(int, args.eval_seed.split(","))),
-        list(map(float, args.alpha.split(","))),
+        list(map(disen.parse_optional(float), args.alpha.split(","))),
         args.out,
     )
 

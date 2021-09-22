@@ -15,12 +15,13 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         if exp.has_entry()
     ]
     entries = [e for e in entries if e]
-    df = pandas.DataFrame(entries)
-    df = df.melt(
+    df_raw = pandas.DataFrame(entries)
+    df = df_raw.melt(
         ["task", "model", "train_seed", "eval_seed", "alpha"],
         [
             "beta_vae_score",
             "factor_vae_score",
+            "mi",
             "mig",
             "unibound_l",
             "unibound_u",
@@ -36,6 +37,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             "betaVAE": "βVAE",
             "beta_vae_score": "BetaVAE",
             "factor_vae_score": "FactorVAE",
+            "mi": "MI",
             "mig": "MIG",
             "unibound_l": "UniBound",
             "unibound_u": "UniBound_u",
@@ -46,13 +48,28 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         }
     )
     # Remove unsuccessful trials of JointVAE
-    df = df.loc[(df["model"] != "JointVAE") | df["train_seed"].isin([3, 5, 6])]
+    # df = df.loc[
+    #     (
+    #         (df["task"] == "dSprites")
+    #         & ((df["model"] != "JointVAE") | df["train_seed"].isin([3, 5, 6]))
+    #     )
+    #     | (
+    #         (df["task"] == "3dshapes")
+    #         & ((df["model"] != "JointVAE") | df["train_seed"].isin([54, 55, 56]))
+    #     )
+    # ]
+    df_clean = df.loc[df["alpha"].isin([None])]
 
-    df_clean = df.loc[df["alpha"] == 0.0]
-    df_attack = df.loc[
-        ((df["train_seed"] == 6) & (df["model"] == "TCVAE"))
-        | ((df["train_seed"] == 5) & (df["model"] == "βVAE"))
-    ]
+    df_train = df_raw.melt(
+        ["task", "model", "train_seed"],
+        [
+            "elbo",
+            "loss",
+            "recon",
+        ],
+        "objective",
+        "value",
+    ).replace({"betaVAE": "βVAE"})
 
     metric_order = [
         "BetaVAE",
@@ -68,25 +85,27 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
 
     fg = seaborn.catplot(
         kind="box",
-        x="metric",
-        order=metric_order,
+        x="model",
+        order=model_order,
         y="score",
-        hue="model",
-        hue_order=model_order,
+        col="metric",
+        col_order=metric_order,
+        col_wrap=2,
         legend_out=False,
         data=df_clean,
     )
-    fg.set_axis_labels("metric", "disentanglenet score")
+    fg.set_axis_labels("model", "disentanglenet score")
     fg.set(ylim=(0, 1))
     _render_and_close(fg, task_dir / "model_metric.png")
 
     for model in model_order:
         fg = seaborn.catplot(
             kind="box",
-            x="metric",
-            order=metric_order,
+            x="train_seed",
             y="score",
-            hue="train_seed",
+            col="metric",
+            col_order=metric_order,
+            col_wrap=2,
             legend=False,
             data=df_clean.loc[df_clean["model"] == model],
         )
@@ -94,7 +113,23 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         fg.set(ylim=(0, 1))
         _render_and_close(fg, task_dir / f"eval_deviation-{model}.png")
 
-    pid_keys = ["UniBound", "redundancy", "synergy"]
+    for objective in ["elbo", "loss", "recon"]:
+        fg = seaborn.catplot(
+            kind="box",
+            x="objective",
+            y="value",
+            col="model",
+            col_order=model_order,
+            col_wrap=2,
+            hue="train_seed",
+            legend=False,
+            sharey=False,
+            data=df_train.loc[df_train["objective"] == objective],
+        )
+        fg.set_axis_labels("", objective)
+        _render_and_close(fg, task_dir / f"train_{objective}.png")
+
+    pid_keys = ["UniBound", "redundancy", "synergy", "MI"]
     ub_keys = [f"{k}_u" for k in pid_keys]
     fg = seaborn.catplot(
         kind="bar",
@@ -118,21 +153,26 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             data=df_clean.loc[df_clean["model"] == model],
             ax=ax,
         )
-    fg.set_xticklabels(["U", "R", "C"])
+    fg.set_xticklabels(["U", "R", "C", "MI"])
     fg.set_titles("{col_name}")
     fg.set_axis_labels("", "normalized value")
-    fg.set(ylim=(0, 0.7))
+    # fg.set(ylim=(0, 0.7))
     _render_and_close(fg, task_dir / "range.png")
 
+    df_attack = df.loc[
+        (df["train_seed"].isin([6, 53]) & (df["model"] == "TCVAE"))
+        | (df["train_seed"].isin([5, 52]) & (df["model"] == "βVAE"))
+    ]
     fg = seaborn.relplot(
         kind="line",
         x="alpha",
         y="score",
-        hue="metric",
-        hue_order=metric_order,
-        col="model",
-        col_order=["βVAE", "TCVAE"],
-        aspect=0.5,
+        hue="model",
+        hue_order=["βVAE", "TCVAE"],
+        col="metric",
+        col_order=metric_order,
+        col_wrap=2,
+        facet_kws={"sharex": True, "sharey": False},
         data=df_attack,
     )
     fg.set_titles("{col_name}")
