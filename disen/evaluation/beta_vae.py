@@ -36,7 +36,7 @@ def beta_vae_score(
     )
 
     def embed_sample(xs: torch.Tensor) -> torch.Tensor:
-        zs = model.infer_mean(xs.reshape(-1, *xs.shape[3:]))
+        zs = model.infer_sample(xs.reshape(-1, *xs.shape[3:]))
         zs = [z.reshape(*xs.shape[:3], *z.shape[1:]) for z in zs]
         z_diffs = torch.cat([_l1_diff(z[:, :, 0], z[:, :, 1]) for z in zs], -1)
         return z_diffs.mean(1)

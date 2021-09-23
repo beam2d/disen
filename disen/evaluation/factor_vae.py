@@ -75,7 +75,7 @@ def _compute_normalizer(
     )
 
     zs_batches = [
-        model.infer_mean(batch[0].to(model.device))
+        model.infer_sample(batch[0].to(model.device))
         for batch in itertools.islice(loader_to_normalize, n_iters)
     ]
     zs_cat = [torch.cat(z_batches, 0) for z_batches in zip(*zs_batches)]
