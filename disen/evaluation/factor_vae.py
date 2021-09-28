@@ -30,7 +30,7 @@ def factor_vae_score(
     def embed_sample(x: torch.Tensor) -> torch.Tensor:
         batch_size, _, sample_size = x.shape[:3]
         x_flat = x.reshape(batch_size * sample_size, *x.shape[3:])
-        zs_flat = model.infer_mean(x_flat.to(model.device))
+        zs_flat = model.infer_sample(x_flat.to(model.device))
         zs = [z.reshape(batch_size, sample_size, *z.shape[1:]) for z in zs_flat]
         zs_var = _compute_variance(zs, model.spec, 1) / normalizer
         return zs_var.argmin(1).cpu()
