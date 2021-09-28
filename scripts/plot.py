@@ -3,7 +3,6 @@ import pathlib
 from typing import Sequence
 
 from matplotlib import pyplot
-from numpy.core.fromnumeric import choose
 import pandas
 import seaborn
 
@@ -101,10 +100,10 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
 
     metric_order = ["BetaVAE", "FactorVAE", "MIG", "UniBound"]
     model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE"]
-
-    seaborn.set("paper", "darkgrid", "muted")
+    _set_style(font_scale=2)
 
     task_dir = root / f"task-{task}"
+    legend = task == "dSprites"
 
     for objective in ["elbo", "loss", "recon"]:
         fg = seaborn.catplot(
@@ -122,10 +121,12 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         fg.set_axis_labels("", objective)
         _render_and_close(fg, task_dir / f"train_{objective}.png")
 
+    _set_style(font_scale=2.5)
     fg = seaborn.catplot(
         kind="box",
-        x="model",
-        order=model_order,
+        x="task",
+        hue="model",
+        hue_order=model_order,
         y="score",
         col="metric",
         col_order=metric_order,
@@ -133,11 +134,16 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         legend_out=False,
         data=df_clean,
     )
-    fg.set_axis_labels("model", "disentanglenet score")
+    fg.set_axis_labels("", "metric score")
+    fg.set_xticklabels(labels=[])
     fg.set(ylim=(0, 1))
+    if legend:
+        fg.add_legend(loc="best", title="model")
     _render_and_close(fg, task_dir / "model_metric.png")
 
+    _set_style(font_scale=2)
     for model in model_order:
+        name = "betaVAE" if model == "βVAE" else model
         fg = seaborn.catplot(
             kind="box",
             x="train_seed",
@@ -149,8 +155,9 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             data=df[(df["model"] == model) & df["alpha"].isna()],
         )
         fg.set_axis_labels("", "disentanglement score")
+        fg.set_xticklabels(labels=[])
         fg.set(ylim=(0, 1))
-        _render_and_close(fg, task_dir / f"eval_deviation-{model}.png")
+        _render_and_close(fg, task_dir / f"eval_deviation-{name}.png")
 
     pid_keys = ["UniBound", "redundancy", "synergy"]
     ub_keys = [f"{k}_u" for k in pid_keys]
@@ -177,14 +184,13 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             data=df_model,
             ax=ax,
         )
-        # mi = df_model.loc[df_model["metric"] == "MI"].mean()["score"]
-        # ax.plot([-0.5, 2.5], [mi, mi], "k-")
     fg.set_xticklabels(["U", "R", "C"])
     fg.set_titles("{col_name}")
     fg.set_axis_labels("", "normalized information")
     fg.set(ylim=(0, 0.8))
     _render_and_close(fg, task_dir / "range.png")
 
+    _set_style(font_scale=2.5)
     score_range = 0.0
     score_med: list[float] = []
     for metric in metric_order:
@@ -195,21 +201,23 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         score_med.append((score_min + score_max) / 2)
     score_range += 0.1
 
+    attacked_models = ["βVAE", "TCVAE"]
     fg = seaborn.relplot(
         kind="line",
         x="alpha",
         y="score",
         hue="model",
-        hue_order=["βVAE", "TCVAE"],
+        hue_order=attacked_models,
         col="metric",
         col_order=metric_order,
         col_wrap=2,
         facet_kws={"sharex": True, "sharey": False},
+        legend=False,
         data=df_attack,
     )
     fg.set_titles("{col_name}")
-    fg.set_axis_labels("α", "disentanglement score")
-    for ax, med in zip(fg.axes.flatten(), score_med):
+    fg.set_axis_labels("α", "")
+    for ax, med, metric in zip(fg.axes.flatten(), score_med, metric_order):
         ax.set_xticks([0.0, 1.0, 2.0, 3.0, 4.0])
         ymin = med - score_range / 2
         ymax = med + score_range / 2
@@ -220,11 +228,22 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
             ymax = 1.0
             ymin = 1.0 - score_range
         ax.set_ylim(ymin, ymax)
+        if legend and metric == "BetaVAE":
+            ax.legend(attacked_models, loc="best")
     _render_and_close(fg, task_dir / f"attacked.png")
 
 
+def _set_style(
+    context: str = "paper",
+    style: str = "darkgrid",
+    palette: str = "muted",
+    font_scale: float = 2,
+) -> None:
+    seaborn.set_theme(context, style, palette, font_scale=font_scale)
+
+
 def _render_and_close(fg: seaborn.FacetGrid, path: pathlib.Path) -> None:
-    fg.figure.savefig(path)
+    fg.figure.savefig(path, bbox_inches="tight")
     pyplot.close(fg.fig)
 
 
