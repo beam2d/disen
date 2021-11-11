@@ -12,6 +12,7 @@ def main() -> None:
     parser.add_argument("--dataset_path", required=True)
     parser.add_argument("--task", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--beta", type=float, default=None)
     parser.add_argument("--train_seed", required=True, type=int)
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
@@ -23,6 +24,7 @@ def main() -> None:
         model=args.model,
         train_seed=args.train_seed,
         phase="train",
+        beta=args.beta,
     )
     experiment.train(torch.device(args.device))
 

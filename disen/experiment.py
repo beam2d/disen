@@ -2,6 +2,7 @@ import dataclasses
 import json
 import pathlib
 import random
+import re
 import subprocess
 from typing import Any, Callable, Iterator, Literal, Optional, TypeVar, cast
 
@@ -26,6 +27,7 @@ class Experiment:
     phase: Literal["train", "eval"]
     eval_seed: Optional[int] = None
     alpha: Optional[float] = None
+    beta: Optional[float] = None
 
     def get_model_path(self) -> pathlib.Path:
         return self._get_common_dir() / "phase-train" / "model.pt"
@@ -100,10 +102,31 @@ class Experiment:
         entry["alpha"] = self.alpha
         return entry
 
+    def load_mi_metrics(self) -> dict[str, torch.Tensor]:
+        ret: dict[str, torch.Tensor] = {}
+        re_key = re.compile(r"([A-Za-z0-9_]+)=$")
+
+        with open(self.get_dir() / "mi_metrics.txt") as f:
+            key = ""
+            tensor = ""
+            for line in f:
+                match = re_key.match(line.strip())
+                if match is not None:
+                    key = match[1]
+                    tensor = ""
+                else:
+                    tensor += line
+                    if line.find(")") >= 0:
+                        ret[key] = eval(tensor, {"tensor": torch.as_tensor})
+
+        return ret
+
     def _get_common_dir(self) -> pathlib.Path:
         out_dir = self.out_dir
         out_dir /= f"task-{self.task}"
         out_dir /= f"model-{self.model}"
+        if self.beta is not None:
+            out_dir /= f"beta-{self.beta}"
         out_dir /= f"train_seed-{self.train_seed}"
         return out_dir
 
@@ -123,13 +146,14 @@ class Experiment:
             subprocess.run(["git", "diff"], stdout=f)
 
     def _make_model(self) -> models.LatentVariableModel:
-        return _make_model(self.task, self.model)
+        return _make_model(self.task, self.model, self.beta)
 
 
 def collect_experiments(
     root: pathlib.Path,
     task: TaskType,
     dataset_path: pathlib.Path = pathlib.Path("."),
+    with_beta: bool = False,
 ) -> Iterator[Experiment]:
     def dig(
         d: pathlib.Path, attr: str, typ: Callable[[str], _T]
@@ -143,20 +167,38 @@ def collect_experiments(
                 ret.append((typ(kv[1]), l))
         return ret
 
-    for model, d in dig(root / f"task-{task}", "model", str):
-        for train_seed, d in dig(d, "train_seed", int):
-            for eval_seed, d in dig(d / "phase-eval", "eval_seed", int):
-                for alpha, _ in dig(d, "alpha", str_util.parse_optional(float)):
-                    yield Experiment(
-                        root,
-                        dataset_path,
-                        task,
-                        cast(ModelType, model),
-                        train_seed,
-                        "eval",
-                        eval_seed,
-                        alpha,
-                    )
+    if with_beta:
+        for model, d in dig(root / f"task-{task}", "model", str):
+            for beta, d in dig(d, "beta", float):
+                for train_seed, d in dig(d, "train_seed", int):
+                    for eval_seed, d in dig(d / "phase-eval", "eval_seed", int):
+                        for alpha, _ in dig(d, "alpha", str_util.parse_optional(float)):
+                            yield Experiment(
+                                root,
+                                dataset_path,
+                                task,
+                                cast(ModelType, model),
+                                train_seed,
+                                "eval",
+                                eval_seed,
+                                alpha,
+                                beta,
+                            )
+    else:
+        for model, d in dig(root / f"task-{task}", "model", str):
+            for train_seed, d in dig(d, "train_seed", int):
+                for eval_seed, d in dig(d / "phase-eval", "eval_seed", int):
+                    for alpha, _ in dig(d, "alpha", str_util.parse_optional(float)):
+                        yield Experiment(
+                            root,
+                            dataset_path,
+                            task,
+                            cast(ModelType, model),
+                            train_seed,
+                            "eval",
+                            eval_seed,
+                            alpha,
+                        )
 
 
 def _init_seed(seed: int) -> None:
@@ -174,7 +216,14 @@ def _get_dataset(task: TaskType, path: pathlib.Path) -> data.DatasetWithFactors:
     raise ValueError(f"unknown task: {task}")
 
 
-def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
+def _make_model(
+    task: TaskType,
+    model: ModelType,
+    beta: Optional[float] = None,
+) -> models.LatentVariableModel:
+    def get_beta(default: float) -> float:
+        return default if beta is None else beta
+
     if task == "dSprites":
         image_size = 64
         channels = 1
@@ -196,7 +245,7 @@ def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
     if model == "betaVAE":
         encoder = nn.SimpleConvNet(image_size, channels, 256)
         decoder = nn.SimpleTransposedConvNet(image_size, n_latents, channels)
-        return models.VAE(encoder, decoder, n_latents, beta=4.0)
+        return models.VAE(encoder, decoder, n_latents, beta=get_beta(4.0))
 
     if model == "CascadeVAE":
         encoder = nn.SimpleConvNet(image_size, channels, 256)
@@ -206,7 +255,7 @@ def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
             decoder,
             n_categories=n_categories,
             n_continuous=n_continuous,
-            beta_h=10.0,
+            beta_h=get_beta(10.0),
             beta_l=2.0,
             beta_dumping_interval=20_000,
             warmup_iteration=100_000,
@@ -217,7 +266,7 @@ def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
         encoder = nn.SimpleConvNet(image_size, channels, 256)
         decoder = nn.SimpleTransposedConvNet(image_size, n_latents, channels)
         discr = models.FactorVAEDiscriminator(n_latents)
-        gamma = {"dSprites": 35.0, "3dshapes": 20.0}[task]
+        gamma = get_beta({"dSprites": 35.0, "3dshapes": 20.0}[task])
         return models.FactorVAE(encoder, decoder, discr, gamma=gamma)
 
     if model == "JointVAE":
@@ -228,7 +277,7 @@ def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
             decoder,
             n_categories=n_categories,
             n_continuous=n_continuous,
-            gamma=150.0,
+            gamma=get_beta(150.0),
             temperature=0.67,
             max_capacity_discrete=1.1,
             max_capacity_continuous=40.0,
@@ -236,7 +285,7 @@ def _make_model(task: TaskType, model: ModelType) -> models.LatentVariableModel:
         )
 
     if model == "TCVAE":
-        beta = {"dSprites": 6.0, "3dshapes": 4.0}[task]
+        beta = get_beta({"dSprites": 6.0, "3dshapes": 4.0}[task])
         encoder = nn.SimpleConvNet(image_size, channels, 256)
         decoder = nn.SimpleTransposedConvNet(image_size, n_latents, channels)
         return models.TCVAE(encoder, decoder, n_latents, dataset_size, beta=beta)
