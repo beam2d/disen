@@ -9,6 +9,8 @@ from typing import Any, Callable, Iterator, Literal, Optional, TypeVar, cast
 import numpy
 import torch
 
+from disen.data.dataset_with_factors import DatasetWithFactors
+
 from . import attack, data, evaluation, log_util, models, nn, str_util, training
 
 
@@ -50,6 +52,9 @@ class Experiment:
     def get_job_dir(self) -> pathlib.Path:
         return self.get_dir() / "job"
 
+    def get_model_dir(self) -> pathlib.Path:
+        return self._get_common_dir()
+
     def train(self, device: torch.device) -> None:
         assert self.phase == "train"
 
@@ -71,9 +76,7 @@ class Experiment:
 
         self._setup_exp_dir()
         _init_seed(self.eval_seed)
-        model = self._make_model()
-        pt_path = self.get_model_path()
-        model.load_state_dict(torch.load(pt_path, map_location="cpu"))
+        model = self.load_model()
         entry = _evaluate_model(
             self.task, model, self.dataset_path, device, self.alpha, self.get_dir()
         )
@@ -82,6 +85,9 @@ class Experiment:
 
     def has_entry(self) -> bool:
         return self.get_entry_path().exists()
+
+    def load_dataset(self) -> DatasetWithFactors:
+        return _get_dataset(self.task, self.dataset_path)
 
     def load_entry(self) -> dict[str, float]:
         with open(self.get_history_path()) as f:
@@ -100,6 +106,7 @@ class Experiment:
         if self.eval_seed is not None:
             entry["eval_seed"] = self.eval_seed
         entry["alpha"] = self.alpha
+        entry["beta"] = self.beta
         return entry
 
     def load_mi_metrics(self) -> dict[str, torch.Tensor]:
@@ -120,6 +127,13 @@ class Experiment:
                         ret[key] = eval(tensor, {"tensor": torch.as_tensor})
 
         return ret
+
+    def load_model(self) -> models.LatentVariableModel:
+        assert self.phase == "eval"
+        model = self._make_model()
+        pt_path = self.get_model_path()
+        model.load_state_dict(torch.load(pt_path, map_location="cpu"))
+        return model
 
     def _get_common_dir(self) -> pathlib.Path:
         out_dir = self.out_dir
@@ -277,10 +291,10 @@ def _make_model(
             decoder,
             n_categories=n_categories,
             n_continuous=n_continuous,
-            gamma=get_beta(150.0),
+            gamma=150.0,
             temperature=0.67,
             max_capacity_discrete=1.1,
-            max_capacity_continuous=40.0,
+            max_capacity_continuous=get_beta(40.0),
             max_capacity_iteration=300_000,
         )
 

@@ -25,9 +25,13 @@ _FACTOR_NAMES = {
 }
 
 
-def load_df(root: pathlib.Path, task: disen.TaskType) -> pandas.DataFrame:
+def load_df(
+    root: pathlib.Path,
+    task: disen.TaskType,
+    with_beta: bool = False,
+) -> pandas.DataFrame:
     entries: list[dict[str, Any]] = []
-    for exp in disen.collect_experiments(root, task):
+    for exp in disen.collect_experiments(root, task, with_beta=with_beta):
         if not exp.has_entry():
             continue
         entry = exp.load_entry_with_attrs()
@@ -73,7 +77,7 @@ def select_best(
     index = sort.groupby(level="model").head(count).index
     df = df_raw[df_raw.set_index(index.names).index.isin(index)]
     return df.melt(
-        ["task", "model", "train_seed", "eval_seed"],
+        ["task", "model", "train_seed", "eval_seed", "alpha", "beta"],
         columns,
         "metric",
         "score",
@@ -103,13 +107,18 @@ def melt_for_eval(
 
     if choose_best < 1.0:
         df_bv = select_best(df_raw, "beta_vae_score", ["beta_vae_score"], choose_best)
-        df_fv = select_best(df_raw, "factor_vae_score", ["factor_vae_score"], choose_best)
+        df_fv = select_best(
+            df_raw, "factor_vae_score", ["factor_vae_score"], choose_best
+        )
         df_mig = select_best(df_raw, "mig", ["mig"], choose_best)
         df_ub = select_best(df_raw, "unibound_l", pid_cols, choose_best)
         df = pandas.concat([df_bv, df_fv, df_mig, df_ub])
     else:
+        keys = ["task", "model", "train_seed", "eval_seed", "alpha"]
+        if "beta" in df_raw.keys():
+            keys.append("beta")
         df = df_raw.melt(
-            ["task", "model", "train_seed", "eval_seed", "alpha"],
+            keys,
             ["beta_vae_score", "factor_vae_score", "mig", *pid_cols],
             "metric",
             "score",
@@ -158,6 +167,10 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     df_factor = df_clean[df_clean["factor"].notna()]
     df_clean = df_clean[df_clean["factor"].isna()]
     df_attack = df[df["alpha"].notna()]
+
+    df_raw_beta = load_df(root, task, with_beta=True)
+    df_beta = melt_for_eval(task, df_raw_beta, choose_best=0.5)
+    df_beta_clean = df_beta[df_beta["factor"].isna()]
 
     metric_order = ["BetaVAE", "FactorVAE", "MIG", "UniBound"]
     model_order = ["βVAE", "FactorVAE", "TCVAE", "JointVAE"]
@@ -315,17 +328,86 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     fg.set_axis_labels("α", "")
     for ax, med, metric in zip(fg.axes.flatten(), score_med, metric_order):
         ax.set_xticks([0.0, 1.0, 2.0, 3.0, 4.0])
-        ymin = med - score_range / 2
-        ymax = med + score_range / 2
-        if ymin < 0:
-            ymin = 0.0
-            ymax = score_range
-        elif ymax > 1:
-            ymax = 1.0
-            ymin = 1.0 - score_range
+        ymin, ymax = _get_sized_range(med, score_range)
         ax.set_ylim(ymin, ymax)
         ax.legend(attacked_models, loc="best")
     _render_and_close(fg, task_dir / f"attacked.png")
+
+    ### beta
+    score_range = 0.0
+    score_med = []
+    for metric in metric_order:
+        df_metric = df_beta_clean[df_beta_clean["metric"] == metric]
+        score_min = df_metric["score"].min()
+        score_max = df_metric["score"].max()
+        score_range = max(score_range, score_max - score_min)
+        score_med.append((score_min + score_max) / 2)
+    score_range += 0.1
+
+    for model in model_order:
+        df_beta_model = df_beta_clean[df_beta_clean["model"] == model]
+        fg = seaborn.relplot(
+            kind="line",
+            x="beta",
+            y="score",
+            col="metric",
+            col_order=metric_order,
+            col_wrap=2,
+            facet_kws={"sharex": True, "sharey": False},
+            legend=False,
+            data=df_beta_model,
+        )
+        fg.set_titles("metric={col_name}")
+        fg.set_axis_labels("reguralization coefficients", "")
+        for ax, med, metric in zip(fg.axes.flatten(), score_med, metric_order):
+            if task == "dSprites":
+                xticks = {
+                    "βVAE": [2.0, 4.0, 6.0, 8.0],
+                    "FactorVAE": [10.0, 20.0, 30.0, 40.0],
+                    "JointVAE": [10.0, 20.0, 30.0, 40.0],
+                    "TCVAE": [2.0, 4.0, 6.0, 8.0],
+                }[model]
+            elif task == "3dshapes":
+                xticks = {
+                    "βVAE": [2.0, 4.0, 6.0, 8.0],
+                    "FactorVAE": [5.0, 10.0, 15.0, 20.0],
+                    "JointVAE": [10.0, 20.0, 30.0, 40.0],
+                    "TCVAE": [2.0, 4.0, 6.0, 8.0],
+                }[model]
+            else:
+                raise ValueError(f"unknown task: {task}")
+            ax.set_xticks(xticks)
+            ymin, ymax = _get_sized_range(med, score_range)
+            ax.set_ylim(ymin, ymax)
+        _render_and_close(fg, task_dir / f"beta_vs_score-{model}.png")
+
+        fg = seaborn.catplot(
+            kind="bar",
+            x="metric",
+            order=ub_keys,
+            y="score",
+            col="beta",
+            color="orange",
+            legend=False,
+            aspect=0.3,
+            facet_kws={"gridspec_kws": {"wspace": 0.2}},
+            data=df_beta_model,
+        )
+        for beta, ax in fg.axes_dict.items():
+            df_beta_beta = df_beta_model[df_beta_model["beta"] == beta]
+            seaborn.barplot(
+                x="metric",
+                order=pid_keys,
+                y="score",
+                color="#EAEAF2",
+                data=df_beta_beta,
+                ax=ax,
+            )
+        fg.set_xticklabels(["U", "R", "C"])
+        fg.set_titles("{col_name}")
+        fg.set_axis_labels("", "normalized information")
+        fg.set(ylim=(0, 0.8))
+        _render_and_close(fg, task_dir / f"beta_vs_range-{model}.png")
 
 
 def _set_style(
@@ -338,8 +420,21 @@ def _set_style(
 
 
 def _render_and_close(fg: seaborn.FacetGrid, path: pathlib.Path) -> None:
-    fg.figure.savefig(path, bbox_inches="tight")
+    path_s = str(path).replace("β", "beta")
+    fg.figure.savefig(path_s, bbox_inches="tight")
     pyplot.close(fg.fig)
+
+
+def _get_sized_range(med: float, score_range: float) -> tuple[float, float]:
+    min_score = med - score_range / 2
+    max_score = med + score_range / 2
+    if min_score < 0.0:
+        min_score = 0.0
+        max_score = score_range
+    if max_score > 1.0:
+        max_score = 1.0
+        min_score = 1.0 - score_range
+    return (min_score, max_score)
 
 
 def main() -> None:
