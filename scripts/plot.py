@@ -98,7 +98,7 @@ def melt_for_eval(
     df_raw: pandas.DataFrame,
     choose_best: float = 1.0,
 ) -> pandas.DataFrame:
-    pid_cols = ["mi"]
+    pid_cols = ["mi", "tc"]
     pat_factor = re.compile(r"factor_(unibound|redundancy|synergy)_(l|u)_([0-9]+)")
     pat_pid = re.compile(r"(unibound|redundancy|synergy)(_u)?")
     for key in df_raw.keys():
@@ -147,6 +147,7 @@ def melt_for_eval(
             "beta_vae_score": "BetaVAE",
             "factor_vae_score": "FactorVAE",
             "mi": "MI",
+            "tc": "TC",
             "mig": "MIG",
             "unibound_l": "UniBound",
             "unibound_u": "UniBound_u",
@@ -167,6 +168,12 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     df_factor = df_clean[df_clean["factor"].notna()]
     df_clean = df_clean[df_clean["factor"].isna()]
     df_attack = df[df["alpha"].notna()]
+    df_eval_mean = (
+        df_clean[df_clean["alpha"].isna() & df_clean["beta"].isna()]
+        .groupby(["model", "metric"])
+        .mean()
+        .reset_index()
+    )
 
     df_raw_beta = load_df(root, task, with_beta=True)
     df_beta = melt_for_eval(task, df_raw_beta, choose_best=0.5)
@@ -200,6 +207,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         fg.set_axis_labels("", objective)
         _render_and_close(fg, task_dir / f"train_{objective}.png")
 
+    # model vs metrics
     _set_style(font_scale=2.5)
     fg = seaborn.catplot(
         kind="box",
@@ -219,6 +227,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     fg.add_legend(loc="best", title="model")
     _render_and_close(fg, task_dir / "model_metric.png")
 
+    # eval deviation
     _set_style(font_scale=2)
     for model in model_order:
         fg = seaborn.catplot(
@@ -236,6 +245,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         fg.set(ylim=(0, 1))
         _render_and_close(fg, task_dir / f"eval_deviation-{model_to_name[model]}.png")
 
+    # PID range
     pid_keys = ["UniBound", "redundancy", "synergy"]
     ub_keys = [f"{k}_u" for k in pid_keys]
     fg = seaborn.catplot(
@@ -267,6 +277,7 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
     fg.set(ylim=(0, 0.8))
     _render_and_close(fg, task_dir / "range.png")
 
+    # factor-range
     _set_style(font_scale=1.5)
     for model in model_order:
         df_factor_model = df_factor[df_factor["model"] == model]
@@ -310,6 +321,24 @@ def plot(root: pathlib.Path, task: disen.TaskType) -> None:
         score_med.append((score_min + score_max) / 2)
     score_range += 0.1
 
+    # TC
+    _set_style(font_scale=1.5)
+    df_tc = df_eval_mean[df_eval_mean["metric"].isin(["redundancy", "TC"])]
+    df_tc = df_tc.pivot(
+        index=["model", "train_seed", "alpha", "eval_seed"], columns="metric"
+    )["score"].reset_index()
+    fg = seaborn.relplot(
+        kind="scatter",
+        x="TC",
+        y="redundancy",
+        hue="model",
+        data=df_tc,
+    )
+    fg.set_axis_labels("Total correlation", "Redundancy lowerbound")
+    _render_and_close(fg, task_dir / f"tc_vs_redundancy.png")
+
+    # attack
+    _set_style(font_scale=2.5)
     attacked_models = ["βVAE", "TCVAE"]
     fg = seaborn.relplot(
         kind="line",

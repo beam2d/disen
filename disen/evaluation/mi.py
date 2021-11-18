@@ -21,6 +21,7 @@ class MIMetrics:
     mi_zmi_yj: torch.Tensor
     mi_z_yj: torch.Tensor
     mi: float  # mutual information (mean_j I(y_j; z)/H(y_j))
+    tc: float  # total correlation of z (sum_i H(z_i) - H(z))
     mig: float  # mutual information gap
     unibound_l: float
     unibound_u: float
@@ -31,8 +32,9 @@ class MIMetrics:
 
     def get_scores(self) -> dict[str, float]:
         return {
-            "mig": self.mig,
             "mi": self.mi,
+            "tc": self.tc,
+            "mig": self.mig,
             "unibound_l": self.unibound_l,
             "unibound_u": self.unibound_u,
             "redundancy_l": self.redundancy_l,
@@ -47,8 +49,9 @@ class MIMetrics:
                 f.write(f"mi_zi_yj=\n{self.mi_zi_yj}\n")
                 f.write(f"mi_zmi_yj=\n{self.mi_zmi_yj}\n")
                 f.write(f"mi_z_yj=\n{self.mi_z_yj}\n")
-                f.write(f"mig={self.mig}\n")
                 f.write(f"mi={self.mi}\n")
+                f.write(f"tc={self.tc}\n")
+                f.write(f"mig={self.mig}\n")
                 f.write(f"unibound_l={self.unibound_l}\n")
                 f.write(f"unibound_u={self.unibound_u}\n")
                 f.write(f"redundancy_l={self.redundancy_l}\n")
@@ -68,13 +71,18 @@ def mi_metrics(
         return (s.cpu() / ent_yj).clip(0, 1)
 
     _logger.info("computing mi_zi_yj...")
-    mi_zi_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_entropy))
+    ent_zi, mi_zi_yj = _compute_mi_zi_yj(dataset, model.aggregated_entropy)
+    mi_zi_yj = normalize(mi_zi_yj)
     _logger.info("computing mi_zmi_yj...")
-    mi_zmi_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_loo_entropy))
+    ent_zmi_yj, mi_zmi_yj = _compute_mi_zi_yj(dataset, model.aggregated_loo_entropy)
+    mi_zmi_yj = normalize(mi_zmi_yj)
     _logger.info("computing mi_z_yj...")
-    mi_z_yj = normalize(_compute_mi_zi_yj(dataset, model.aggregated_joint_entropy))
+    ent_z, mi_z_yj = _compute_mi_zi_yj(dataset, model.aggregated_joint_entropy)
+    mi_z_yj = normalize(mi_z_yj)
+
     mig = _gap(mi_zi_yj, 0).mean().item()
     mi = mi_z_yj.mean().item()
+    tc = (ent_zi.sum() - ent_z).item()
     ub_l = (mi_zi_yj - mi_zmi_yj).relu().amax(0).mean().item()
     ub_u = torch.minimum((mi_z_yj - mi_zmi_yj).relu(), mi_zi_yj).amax(0).mean().item()
     ii = mi_zi_yj + mi_zmi_yj - mi_z_yj
@@ -83,13 +91,13 @@ def mi_metrics(
     syn_l = (-ii).relu().amax(0).mean().item()
     syn_u = (mi_z_yj - torch.maximum(mi_zi_yj, mi_zmi_yj)).relu().amax(0).mean().item()
     return MIMetrics(
-        mi_zi_yj, mi_zmi_yj, mi_z_yj, mi, mig, ub_l, ub_u, red_l, red_u, syn_l, syn_u
+        mi_zi_yj, mi_zmi_yj, mi_z_yj, mi, tc, mig, ub_l, ub_u, red_l, red_u, syn_l, syn_u
     )
 
 
 def _compute_mi_zi_yj(
     dataset: data.DatasetWithFactors, entropy_fn: EntropyFn, sample_size: int = 10_000
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     inner_bsize = 256
     outer_bsize = 1024
 
@@ -123,7 +131,7 @@ def _compute_mi_zi_yj(
         ent_zi_yj_list.append(torch.stack(ent_zi_yj_points).mean(0))
     ent_zi_yj = torch.stack(ent_zi_yj_list, 1)
 
-    return ent_zi[:, None] - ent_zi_yj
+    return ent_zi, ent_zi[:, None] - ent_zi_yj
 
 
 def _gap(x: torch.Tensor, dim: int, largest: bool = True) -> torch.Tensor:

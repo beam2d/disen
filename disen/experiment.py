@@ -92,9 +92,9 @@ class Experiment:
     def load_entry(self) -> dict[str, float]:
         with open(self.get_history_path()) as f:
             history: list[dict[str, float]] = json.load(f)
-            d = history[-1]
+            entry = history[-1].copy()
         with open(self.get_entry_path()) as f:
-            entry: dict[str, float] = json.load(f)
+            d: dict[str, float] = json.load(f)
         entry.update(d)
         return entry
 
